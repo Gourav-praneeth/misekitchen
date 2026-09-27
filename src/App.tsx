@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowRight, Check, ChevronDown, ChefHat, CirclePlus, Clock3, CookingPot,
-  Leaf, ListFilter, Minus, PackageOpen, Pencil, Plus, Search, ShoppingBasket, Sparkles,
+  ArrowRight, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
+  Leaf, ListFilter, LogOut, Minus, PackageOpen, Pencil, Plus, Search, ShoppingBasket, Sparkles,
   Trash2, TriangleAlert, X,
 } from 'lucide-react'
+import type { Session } from '@supabase/supabase-js'
+import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
 import { parseSmartEntry } from './smartEntry'
+import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, supabase } from './supabase'
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'grocery'
@@ -39,9 +42,75 @@ function App() {
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeMatch | null>(null)
   const [toast, setToast] = useState('')
+  const [session, setSession] = useState<Session | null>(null)
+  const [authReady, setAuthReady] = useState(!cloudEnabled)
+  const [demoMode, setDemoMode] = useState(false)
+  const [householdId, setHouseholdId] = useState<string | null>(null)
+  const [cloudReady, setCloudReady] = useState(false)
+  const [syncState, setSyncState] = useState<'saved' | 'syncing' | 'error'>('saved')
 
-  useEffect(() => localStorage.setItem('mise-inventory-v1', JSON.stringify(inventory)), [inventory])
-  useEffect(() => localStorage.setItem('mise-grocery-v1', JSON.stringify(grocery)), [grocery])
+  useEffect(() => {
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true) })
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      if (nextSession) setDemoMode(false)
+      setAuthReady(true)
+    })
+    return () => data.subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!session || demoMode) { setHouseholdId(null); setCloudReady(false); return }
+    let active = true
+    async function hydrate() {
+      try {
+        setSyncState('syncing')
+        const id = await getHouseholdId(session!.user.id)
+        if (!id) throw new Error('No kitchen was created for this account.')
+        const cloud = await loadCloudKitchen(id)
+        if (!active) return
+        setHouseholdId(id)
+        if (!cloud.initialized) {
+          const starterInventory = inventory.length ? inventory : seedInventory
+          setInventory(starterInventory)
+          await Promise.all([saveInventorySnapshot(id, starterInventory), saveGrocerySnapshot(id, grocery)])
+          await markHouseholdInitialized(id)
+        } else {
+          setInventory(cloud.inventory)
+          setGrocery(cloud.grocery)
+        }
+        setCloudReady(true)
+        setSyncState('saved')
+      } catch (error) {
+        console.error(error)
+        if (active) setSyncState('error')
+      }
+    }
+    hydrate()
+    return () => { active = false }
+  }, [session, demoMode])
+
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-inventory-v1', JSON.stringify(inventory))
+  }, [inventory, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-grocery-v1', JSON.stringify(grocery))
+  }, [grocery, session, demoMode])
+
+  useEffect(() => {
+    if (!householdId || !cloudReady) return
+    setSyncState('syncing')
+    const timer = setTimeout(() => saveInventorySnapshot(householdId, inventory).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') }), 450)
+    return () => clearTimeout(timer)
+  }, [inventory, householdId, cloudReady])
+
+  useEffect(() => {
+    if (!householdId || !cloudReady) return
+    setSyncState('syncing')
+    const timer = setTimeout(() => saveGrocerySnapshot(householdId, grocery).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') }), 450)
+    return () => clearTimeout(timer)
+  }, [grocery, householdId, cloudReady])
   useEffect(() => {
     if (!toast) return
     const timer = setTimeout(() => setToast(''), 2600)
@@ -70,6 +139,13 @@ function App() {
   const readyCount = recipeMatches.filter((recipe) => recipe.missing.length === 0).length
 
   function notify(message: string) { setToast(message) }
+
+  async function leaveAccount() {
+    if (session && supabase) await supabase.auth.signOut()
+    else setDemoMode(false)
+    setHouseholdId(null)
+    setCloudReady(false)
+  }
 
   function addToGrocery(items: GroceryItem[]) {
     setGrocery((current) => {
@@ -101,6 +177,12 @@ function App() {
     notify(`Kitchen updated after making ${recipe.name}`)
   }
 
+  if (cloudEnabled && !authReady) return <div className="app-loading"><span className="brand-mark"><Leaf /></span><strong>Opening your kitchen…</strong></div>
+  if (cloudEnabled && !session && !demoMode) return <AuthScreen onDemo={() => setDemoMode(true)} />
+
+  const displayName = session?.user.user_metadata.display_name || session?.user.email?.split('@')[0] || 'Gourav'
+  const initials = String(displayName).split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -119,19 +201,20 @@ function App() {
           <strong>{urgentItems.length} items</strong>
           <p>deserve a spot on your plate soon.</p>
         </div>
-        <div className="profile"><span>GB</span><div><strong>Gourav</strong><small>Your kitchen</small></div><ChevronDown size={16} /></div>
+        <div className="profile"><span>{initials}</span><div><strong>{displayName}</strong><small>{session ? 'Cloud kitchen' : 'Local demo'}</small></div>{cloudEnabled && <button onClick={leaveAccount} aria-label={session ? 'Sign out' : 'Leave demo'} title={session ? 'Sign out' : 'Sign in'}><LogOut size={15} /></button>}</div>
       </aside>
 
       <main>
         <header className="topbar">
           <div className="mobile-brand"><Leaf size={18} /> Mise</div>
           <button className="search-button"><Search size={17} /><span>Search your kitchen</span><kbd>⌘ K</kbd></button>
+          {session && <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : syncState === 'syncing' ? 'Saving…' : 'Sync issue'}</span>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add food</button>
         </header>
 
         <div className="page">
-          {view === 'home' && <Home inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} setSelectedRecipe={setSelectedRecipe} />}
+          {view === 'home' && <Home displayName={displayName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
@@ -151,14 +234,15 @@ function NavButton({ active, icon, label, badge, onClick }: { active: boolean; i
   return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
 }
 
-function Home({ inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, setSelectedRecipe }: {
+function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, setSelectedRecipe }: {
+  displayName: string;
   inventory: InventoryItem[]; counts: { category: Category; count: number }[]; urgentItems: InventoryItem[]; recipes: RecipeMatch[];
   readyCount: number; groceryCount: number; setView: (view: View) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
 }) {
   const best = recipes[0]
   return <>
     <section className="welcome">
-      <div><span className="eyebrow">Saturday, your kitchen at a glance</span><h1>{getGreeting()}, Gourav.</h1><p>Everything looks good. A few ingredients are asking to be used soon.</p></div>
+      <div><span className="eyebrow">Saturday, your kitchen at a glance</span><h1>{getGreeting()}, {displayName}.</h1><p>Everything looks good. A few ingredients are asking to be used soon.</p></div>
       <div className="fresh-score"><span><Leaf size={18} /></span><div><small>Kitchen freshness</small><strong>86%</strong></div></div>
     </section>
 
