@@ -64,6 +64,11 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!authReady || window.location.hash !== '#') return
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`)
+  }, [authReady])
+
+  useEffect(() => {
     if (!session || demoMode) { setHouseholdId(null); setCloudReady(false); return }
     let active = true
     async function hydrate() {
@@ -225,7 +230,12 @@ function App() {
   if (cloudEnabled && !authReady) return <div className="app-loading"><span className="brand-mark"><Leaf /></span><strong>Opening your kitchen…</strong></div>
   if (cloudEnabled && !session && !demoMode) return <AuthScreen onDemo={() => setDemoMode(true)} />
 
-  const displayName = session?.user.user_metadata.display_name || session?.user.email?.split('@')[0] || 'Gourav'
+  const metadata = session?.user.user_metadata
+  const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name, metadata?.given_name]
+    .find((value) => typeof value === 'string' && value.trim())?.trim()
+    || session?.user.email?.split('@')[0]
+    || 'Gourav'
+  const greetingName = displayName.split(/\s+/)[0]
   const initials = String(displayName).split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 
   return (
@@ -260,7 +270,7 @@ function App() {
         </header>
 
         <div className="page">
-          {view === 'home' && <Home displayName={displayName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} setSelectedRecipe={setSelectedRecipe} />}
+          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
