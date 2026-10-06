@@ -26,17 +26,26 @@ const hints: FoodHint[] = [
   { words: ['blueberr'], emoji: '🫐', category: 'Produce', location: 'Fridge', expiresIn: 5, defaultUnit: 'box' },
   { words: ['strawberr'], emoji: '🍓', category: 'Produce', location: 'Fridge', expiresIn: 4, defaultUnit: 'box' },
   { words: ['lemon', 'lime'], emoji: '🍋', category: 'Produce', location: 'Fridge', expiresIn: 21, defaultUnit: 'whole' },
+  { words: ['orange', 'clementine'], emoji: '🍊', category: 'Produce', location: 'Fridge', expiresIn: 18, defaultUnit: 'whole' },
+  { words: ['onion', 'shallot'], emoji: '🧅', category: 'Produce', location: 'Pantry', expiresIn: 30, defaultUnit: 'whole' },
+  { words: ['garlic'], emoji: '🧄', category: 'Produce', location: 'Pantry', expiresIn: 30, defaultUnit: 'bulb' },
+  { words: ['potato'], emoji: '🥔', category: 'Produce', location: 'Pantry', expiresIn: 21, defaultUnit: 'whole' },
+  { words: ['mushroom'], emoji: '🍄', category: 'Produce', location: 'Fridge', expiresIn: 6, defaultUnit: 'pack' },
   { words: ['milk'], emoji: '🥛', category: 'Dairy', location: 'Fridge', expiresIn: 7, defaultUnit: 'carton' },
   { words: ['yogurt'], emoji: '🥛', category: 'Dairy', location: 'Fridge', expiresIn: 10, defaultUnit: 'cups' },
   { words: ['cheese'], emoji: '🧀', category: 'Dairy', location: 'Fridge', expiresIn: 21, defaultUnit: 'pack' },
+  { words: ['butter'], emoji: '🧈', category: 'Dairy', location: 'Fridge', expiresIn: 60, defaultUnit: 'pack' },
   { words: ['oat'], emoji: '🥣', category: 'Pantry', location: 'Pantry', expiresIn: 120, defaultUnit: 'cups' },
   { words: ['rice'], emoji: '🍚', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'cups' },
   { words: ['quinoa', 'grain'], emoji: '🌾', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'cups' },
   { words: ['bread'], emoji: '🍞', category: 'Pantry', location: 'Pantry', expiresIn: 6, defaultUnit: 'loaf' },
+  { words: ['pasta', 'noodle'], emoji: '🍝', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'box' },
+  { words: ['bean', 'chickpea', 'lentil'], emoji: '🥫', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'can' },
+  { words: ['tofu', 'tempeh'], emoji: '🧊', category: 'Protein', location: 'Fridge', expiresIn: 7, defaultUnit: 'pack' },
 ]
 
-const numberWords: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, dozen: 12 }
-const unitAliases: Record<string, string> = { pound: 'lb', pounds: 'lb', lbs: 'lb', lb: 'lb', ounce: 'oz', ounces: 'oz', oz: 'oz', cup: 'cups', cups: 'cups', bag: 'bag', bags: 'bags', box: 'box', boxes: 'boxes', carton: 'carton', cartons: 'cartons', bottle: 'bottle', bottles: 'bottles', can: 'can', cans: 'cans', loaf: 'loaf', loaves: 'loaves', egg: 'eggs', eggs: 'eggs' }
+const numberWords: Record<string, number> = { a: 1, an: 1, half: 0.5, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, dozen: 12 }
+const unitAliases: Record<string, string> = { pound: 'lb', pounds: 'lb', lbs: 'lb', lb: 'lb', ounce: 'oz', ounces: 'oz', oz: 'oz', cup: 'cups', cups: 'cups', bag: 'bag', bags: 'bags', box: 'box', boxes: 'boxes', carton: 'carton', cartons: 'cartons', bottle: 'bottle', bottles: 'bottles', can: 'can', cans: 'cans', pack: 'pack', packs: 'packs', package: 'pack', packages: 'packs', bunch: 'bunch', bunches: 'bunches', loaf: 'loaf', loaves: 'loaves', egg: 'eggs', eggs: 'eggs' }
 
 function titleCase(value: string) {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -58,11 +67,16 @@ export function parseSmartEntry(input: string): InventoryItem[] {
 
   return normalized.map((part, index) => {
     const clean = part.replace(/^(i (bought|have|got)|add|some)\s+/i, '').trim()
-    const match = clean.match(/^(\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|dozen)?\s*(lb|lbs|pounds?|oz|ounces?|cups?|bags?|boxes?|cartons?|bottles?|cans?|loaf|loaves|eggs?)?\s*(?:of\s+)?(.+)$/i)
+    const match = clean.match(/^(\d+(?:\.\d+)?|\d+\/\d+|a|an|half|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen)?\s*(lb|lbs|pounds?|oz|ounces?|cups?|bags?|boxes?|cartons?|bottles?|cans?|packs?|packages?|bunch(?:es)?|loaf|loaves|eggs?)?\s*(?:of\s+)?(.+)$/i)
     const rawAmount = match?.[1]?.toLowerCase()
-    const quantity = rawAmount ? (Number(rawAmount) || numberWords[rawAmount] || 1) : 1
+    const fraction = rawAmount?.match(/^(\d+)\/(\d+)$/)
+    const quantity = fraction ? Number(fraction[1]) / Number(fraction[2]) : rawAmount ? (Number(rawAmount) || numberWords[rawAmount] || 1) : 1
     const rawUnit = match?.[2]?.toLowerCase()
-    let rawName = (match?.[3] || clean).replace(/\s+(?:please|today)$/i, '').trim()
+    let rawName = (match?.[3] || clean)
+      .replace(/^(?:fresh|frozen|organic)\s+/i, '')
+      .replace(/\s+(?:please|today)$/i, '')
+      .replace(/^(?:of\s+|the\s+)/i, '')
+      .trim()
     if (rawUnit?.startsWith('egg') && rawName.toLowerCase() === 's') rawName = 'eggs'
     const hint = findHint(rawName)
     const unit = rawUnit ? (unitAliases[rawUnit] || rawUnit) : hint.defaultUnit

@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
-  Leaf, ListFilter, LogOut, Minus, PackageOpen, Pencil, Plus, Search, ShoppingBasket, Sparkles,
-  Trash2, TriangleAlert, X,
+  Leaf, ListFilter, LogOut, MessageSquareText, Minus, PackageOpen, Pencil, Plus, Search, Send,
+  ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
 import { parseSmartEntry } from './smartEntry'
-import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, supabase } from './supabase'
+import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, submitFeedback, supabase } from './supabase'
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'grocery'
 type RecipeMatch = Recipe & { available: number; missing: GroceryItem[]; urgent: number; score: number }
+type SmartReviewItem = InventoryItem & { merge: boolean }
+type ToastState = { message: string; undo?: () => void }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
-const foodIcons = ['🍗', '🥩', '🐟', '🥚', '🥬', '🥦', '🥕', '🥑', '🍅', '🌽', '🫛', '🍎', '🍌', '🫐', '🍓', '🍋', '🥛', '🧀', '🥣', '🍚', '🌾', '🍞', '🥫', '🧂']
+const foodIcons = ['🍗', '🥩', '🐟', '🥚', '🥬', '🥦', '🥕', '🥑', '🍅', '🌽', '🫛', '🍎', '🍌', '🫐', '🍓', '🍋', '🍊', '🧅', '🧄', '🥔', '🍄', '🥛', '🧀', '🧈', '🥣', '🍚', '🌾', '🍞', '🍝', '🥫', '🧊', '🧂']
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -39,9 +41,10 @@ function App() {
   })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeMatch | null>(null)
-  const [toast, setToast] = useState('')
+  const [toast, setToast] = useState<ToastState | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(!cloudEnabled)
   const [demoMode, setDemoMode] = useState(false)
@@ -113,7 +116,7 @@ function App() {
   }, [grocery, householdId, cloudReady])
   useEffect(() => {
     if (!toast) return
-    const timer = setTimeout(() => setToast(''), 2600)
+    const timer = setTimeout(() => setToast(null), toast.undo ? 6500 : 3200)
     return () => clearTimeout(timer)
   }, [toast])
 
@@ -138,7 +141,49 @@ function App() {
   const counts = categories.map((category) => ({ category, count: inventory.filter((item) => item.category === category).length }))
   const readyCount = recipeMatches.filter((recipe) => recipe.missing.length === 0).length
 
-  function notify(message: string) { setToast(message) }
+  function notify(message: string) { setToast({ message }) }
+
+  function addSmartItems(items: SmartReviewItem[]) {
+    const validItems = items.filter((item) => item.name.trim() && item.quantity > 0)
+    const previous = inventory.map((item) => ({ ...item }))
+    let merged = 0
+    setInventory((current) => {
+      const next = current.map((item) => ({ ...item }))
+      validItems.forEach(({ merge, ...item }) => {
+        const existing = merge ? next.find((entry) => normalize(entry.name) === normalize(item.name) && normalize(entry.unit) === normalize(item.unit)) : undefined
+        if (existing) {
+          existing.quantity = Number((existing.quantity + item.quantity).toFixed(2))
+          if (item.expiresIn !== null) existing.expiresIn = existing.expiresIn === null ? item.expiresIn : Math.min(existing.expiresIn, item.expiresIn)
+          merged += 1
+        } else {
+          next.push({ ...item, id: `${normalize(item.name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}-${next.length}` })
+        }
+      })
+      return next
+    })
+    setSmartOpen(false)
+    const added = validItems.length - merged
+    const summary = [added ? `${added} added` : '', merged ? `${merged} merged` : ''].filter(Boolean).join(', ')
+    setToast({
+      message: `${summary} in your kitchen`,
+      undo: () => {
+        setInventory(previous)
+        setToast({ message: 'Smart add undone' })
+      },
+    })
+  }
+
+  async function sendFeedback(category: string, message: string) {
+    if (!session || !householdId) throw new Error('Sign in to send feedback.')
+    await submitFeedback(householdId, session.user.id, category, message, {
+      view,
+      inventoryCount: inventory.length,
+      groceryCount: grocery.length,
+      syncState,
+    })
+    setFeedbackOpen(false)
+    notify('Thank you — your feedback was sent')
+  }
 
   async function leaveAccount() {
     if (session && supabase) await supabase.auth.signOut()
@@ -209,6 +254,7 @@ function App() {
           <div className="mobile-brand"><Leaf size={18} /> Mise</div>
           <button className="search-button"><Search size={17} /><span>Search your kitchen</span><kbd>⌘ K</kbd></button>
           {session && <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : syncState === 'syncing' ? 'Saving…' : 'Sync issue'}</span>}
+          {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)}><MessageSquareText size={16} /><span>Feedback</span></button>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add food</button>
         </header>
@@ -222,10 +268,11 @@ function App() {
       </main>
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { setInventory((current) => [...current, item]); setAddOpen(false); notify(`${item.name} added to your kitchen`) }} />}
-      {smartOpen && <SmartAdd onClose={() => setSmartOpen(false)} onAdd={(items) => { setInventory((current) => [...current, ...items]); setSmartOpen(false); notify(`${items.length} ingredients added to your kitchen`) }} />}
+      {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onAdd={addSmartItems} />}
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
       {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} />}
-      {toast && <div className="toast"><Check size={17} /> {toast}</div>}
+      {toast && <div className="toast"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button onClick={toast.undo}><Undo2 size={14} /> Undo</button>}</div>}
     </div>
   )
 }
@@ -329,19 +376,47 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   </section>
 }
 
-function SmartAdd({ onClose, onAdd }: { onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
+function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
   const [entry, setEntry] = useState('2 lb chicken breast, a bag of spinach, 6 eggs')
-  const [items, setItems] = useState<InventoryItem[]>([])
+  const [items, setItems] = useState<SmartReviewItem[]>([])
 
   function understand() {
-    setItems(parseSmartEntry(entry))
+    setItems(parseSmartEntry(entry).map((item) => ({
+      ...item,
+      merge: inventory.some((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit)),
+    })))
   }
 
-  function updateItem(id: string, updates: Partial<InventoryItem>) {
+  function updateItem(id: string, updates: Partial<SmartReviewItem>) {
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...updates } : item))
   }
 
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Faster food entry</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose}><X /></button></div><p className="modal-intro">Use everyday language. Mise will separate the foods and suggest quantities, storage, and freshness.</p><label>Grocery note<textarea autoFocus value={entry} onChange={(event) => setEntry(event.target.value)} placeholder="Try: 2 lb chicken, six eggs, a bag of spinach…" /></label><div className="smart-examples"><span>Try an example:</span><button onClick={() => setEntry('4 avocados, 2 cartons of milk, a box of blueberries')}>Produce run</button><button onClick={() => setEntry('1 lb salmon, 2 cups rice, broccoli and a lemon')}>Dinner ingredients</button></div><button className="understand-button" onClick={understand} disabled={!entry.trim()}><Sparkles size={16} /> Understand my list</button>{items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>Review before adding</span></div>{items.map((item) => <div className="smart-result" key={item.id}><button className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1) % foodIcons.length] }) }} title="Change icon">{item.emoji}</button><div><input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /><small>{item.category} · {item.location}{item.expiresIn === null ? '' : ` · use in ${item.expiresIn}d`}</small></div><input className="smart-quantity" aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /><input className="smart-unit" aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /><button className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>)}<button className="submit-button" onClick={() => onAdd(items)}>Add {items.length} to my kitchen <ArrowRight /></button></div>}</section></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Smarter food entry</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose} aria-label="Close smart add"><X /></button></div><p className="modal-intro">Use everyday language. Mise will separate the foods, infer the details, and flag anything already in your kitchen.</p><label>Grocery note<textarea autoFocus value={entry} onChange={(event) => setEntry(event.target.value)} placeholder="Try: 2 lb chicken, six eggs, a bag of spinach…" /></label><div className="smart-examples"><span>Try an example:</span><button type="button" onClick={() => setEntry('4 avocados, 2 cartons of milk, a box of blueberries')}>Produce run</button><button type="button" onClick={() => setEntry('1 lb salmon, 2 cups rice, broccoli and a lemon')}>Dinner ingredients</button></div><button type="button" className="understand-button" onClick={understand} disabled={!entry.trim()}><Sparkles size={16} /> Review my list</button>{items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>Everything stays editable</span></div><div className="smart-review-list">{items.map((item) => {
+    const duplicate = inventory.find((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit))
+    return <article className="smart-review-card" key={item.id}>
+      <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
+      <div className="smart-review-fields"><label>Quantity<input aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /></label><label>Unit<input aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => updateItem(item.id, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use in<input aria-label={`Freshness for ${item.name}`} type="number" min="0" placeholder="—" value={item.expiresIn ?? ''} onChange={(event) => updateItem(item.id, { expiresIn: event.target.value === '' ? null : Number(event.target.value) })} /><span>days</span></label></div>
+      {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
+    </article>
+  })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}</section></div>
+}
+
+function FeedbackModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (category: string, message: string) => Promise<void> }) {
+  const [category, setCategory] = useState('idea')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (message.trim().length < 3) return
+    setLoading(true)
+    setError('')
+    try { await onSubmit(category, message.trim()) }
+    catch (submitError) { setError(submitError instanceof Error ? submitError.message : 'Feedback could not be sent. Please try again.'); setLoading(false) }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal feedback-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><MessageSquareText size={12} /> Help shape Mise</span><h2>Send feedback</h2></div><button type="button" onClick={onClose} aria-label="Close feedback"><X /></button></div><p className="modal-intro">Tell us what felt useful, confusing, or missing. Your current screen and item counts are included automatically.</p><label>What kind of feedback?<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="idea">Idea or request</option><option value="problem">Something went wrong</option><option value="confusing">Something was confusing</option><option value="other">Other</option></select></label><label>Your feedback<textarea autoFocus required minLength={3} maxLength={2000} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="What happened, or what would make Mise better?" /></label><div className="feedback-meta"><Cloud size={14} /> Sent privately with basic app context. Never includes your password.</div>{error && <div className="form-error">{error}</div>}<button className="submit-button" disabled={loading || message.trim().length < 3}>{loading ? 'Sending…' : 'Send feedback'} <Send /></button></form></div>
 }
 
 function AddFood({ onClose, onAdd, initialItem }: { onClose: () => void; onAdd: (item: InventoryItem) => void; initialItem?: InventoryItem }) {

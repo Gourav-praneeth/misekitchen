@@ -85,3 +85,21 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
     if (error) throw error
   }
 }
+
+export async function submitFeedback(
+  householdId: string,
+  userId: string,
+  category: string,
+  message: string,
+  context: Record<string, unknown>,
+) {
+  if (!supabase) throw new Error('Cloud feedback is unavailable.')
+  const { error } = await supabase.from('feedback').insert({
+    household_id: householdId,
+    user_id: userId,
+    category,
+    message,
+    context,
+  })
+  if (error) throw error
+}
