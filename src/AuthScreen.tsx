@@ -8,6 +8,7 @@ export default function AuthScreen({ onDemo }: { onDemo: () => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [oauthLoading, setOauthLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
 
   async function submit(event: React.FormEvent) {
@@ -28,6 +29,20 @@ export default function AuthScreen({ onDemo }: { onDemo: () => void }) {
     }
   }
 
+  async function signInWithGoogle() {
+    if (!supabase) return
+    setOauthLoading(true)
+    setMessage(null)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/` },
+    })
+    if (error) {
+      setOauthLoading(false)
+      setMessage({ type: 'error', text: error.message })
+    }
+  }
+
   return <main className="auth-page">
     <section className="auth-story">
       <div className="auth-brand"><span><Leaf /></span>Mise</div>
@@ -39,6 +54,8 @@ export default function AuthScreen({ onDemo }: { onDemo: () => void }) {
         <span className="eyebrow">Welcome to Mise</span>
         <h2>{mode === 'signin' ? 'Come back to your kitchen' : 'Create your kitchen'}</h2>
         <p>{mode === 'signin' ? 'Sign in to continue where you left off.' : 'Start with a private kitchen you can access anywhere.'}</p>
+        <button className="google-button" type="button" onClick={signInWithGoogle} disabled={oauthLoading || loading}><span aria-hidden="true">G</span>{oauthLoading ? 'Opening Google…' : 'Continue with Google'}</button>
+        <div className="auth-divider"><span>or continue with email</span></div>
         {mode === 'signup' && <label>Your name<div><Sparkles /><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Gourav" autoComplete="name" /></div></label>}
         <label>Email address<div><Mail /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" /></div></label>
         <label>Password<div><LockKeyhole /><input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></div></label>

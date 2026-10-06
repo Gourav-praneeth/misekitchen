@@ -27,6 +27,10 @@ Mise supports email/password authentication and household-scoped cloud synchroni
 4. Add the same variables to Vercel for Production, Preview, and Development.
 5. In Supabase Authentication URL Configuration, set the Site URL to the production Vercel address and add local/preview redirect URLs as needed.
 
+### Google sign-in
+
+The sign-in screen includes Google OAuth. To activate it, create a Web OAuth client in Google Cloud, add the callback URL shown in Supabase Authentication → Providers → Google to Google's authorized redirect URIs, then add the Google Client ID and secret to that Supabase provider. Keep the Google secret in Supabase; it must never be added to a `VITE_` variable.
+
 The publishable key is intentionally used by the browser. Authorization is enforced with PostgreSQL grants and Row Level Security. Never expose a Supabase secret or service-role key through a `VITE_` variable.
 
 ### Backend behavior
