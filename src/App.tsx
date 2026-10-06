@@ -64,7 +64,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!authReady || window.location.hash !== '#') return
+    if (!authReady || !window.location.href.endsWith('#')) return
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`)
   }, [authReady])
 
