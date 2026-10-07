@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { GroceryItem, InventoryItem } from './types'
+import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim()
@@ -35,6 +36,7 @@ export async function loadCloudKitchen(householdId: string) {
     inventory: (inventoryResult.data || []).map((row) => ({
       id: row.id, name: row.name, emoji: row.emoji, quantity: Number(row.quantity), unit: row.unit,
       category: row.category, location: row.location, expiresIn: row.expires_in,
+      expiresOn: row.expires_on || expirationDateFromDays(row.expires_in),
     })) as InventoryItem[],
     grocery: (groceryResult.data || []).map((row) => ({
       name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
@@ -55,7 +57,7 @@ export async function saveInventorySnapshot(householdId: string, items: Inventor
     const { error } = await supabase.from('inventory_items').upsert(items.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
       quantity: item.quantity, unit: item.unit, category: item.category, location: item.location,
-      expires_in: item.expiresIn,
+      expires_in: daysUntilExpiration(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
     })), { onConflict: 'household_id,id' })
     if (error) throw error
     const quotedIds = items.map((item) => `"${item.id.replaceAll('"', '\\"')}"`).join(',')

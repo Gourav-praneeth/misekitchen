@@ -10,6 +10,7 @@ export type InventoryItem = {
   category: Category
   location: Location
   expiresIn: number | null
+  expiresOn?: string | null
 }
 
 export type RecipeIngredient = {

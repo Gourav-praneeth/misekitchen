@@ -11,6 +11,14 @@ npm run dev
 
 Open the local URL printed by Vite. Inventory and grocery changes are saved in browser local storage.
 
+Run the quality checks before shipping changes:
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
 ## Supabase backend
 
 Mise supports email/password authentication and household-scoped cloud synchronization through Supabase. Without Supabase environment variables, it automatically remains a local demo.
@@ -38,6 +46,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - New accounts automatically receive a private household.
 - The first sign-in imports the user's existing local demo kitchen into the cloud.
 - Inventory and grocery changes are saved after a short debounce.
+- Ingredient freshness is stored as a calendar use-by date, with legacy `expires_in` values migrated automatically.
 - Each query is restricted to authenticated household members by Row Level Security.
 - Signed-out users can explicitly continue with a browser-only demo.
 - Signed-in testers can send private, household-scoped feedback. Feedback is insert-only from the app and can be reviewed by project owners in the Supabase table editor.

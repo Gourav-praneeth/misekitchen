@@ -67,7 +67,7 @@ export function parseSmartEntry(input: string): InventoryItem[] {
 
   return normalized.map((part, index) => {
     const clean = part.replace(/^(i (bought|have|got)|add|some)\s+/i, '').trim()
-    const match = clean.match(/^(\d+(?:\.\d+)?|\d+\/\d+|a|an|half|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen)?\s*(lb|lbs|pounds?|oz|ounces?|cups?|bags?|boxes?|cartons?|bottles?|cans?|packs?|packages?|bunch(?:es)?|loaf|loaves|eggs?)?\s*(?:of\s+)?(.+)$/i)
+    const match = clean.match(/^(\d+\/\d+|\d+(?:\.\d+)?|a|an|half|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen)?\s*(lb|lbs|pounds?|oz|ounces?|cups?|bags?|boxes?|cartons?|bottles?|cans?|packs?|packages?|bunch(?:es)?|loaf|loaves|eggs?)?\s*(?:of\s+)?(.+)$/i)
     const rawAmount = match?.[1]?.toLowerCase()
     const fraction = rawAmount?.match(/^(\d+)\/(\d+)$/)
     const quantity = fraction ? Number(fraction[1]) / Number(fraction[2]) : rawAmount ? (Number(rawAmount) || numberWords[rawAmount] || 1) : 1

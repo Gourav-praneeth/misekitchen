@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
   Leaf, ListFilter, LogOut, MessageSquareText, Minus, PackageOpen, Pencil, Plus, Search, Send,
@@ -7,6 +7,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
+import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { parseSmartEntry } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, submitFeedback, supabase } from './supabase'
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
@@ -34,7 +35,10 @@ function normalize(value: string) {
 function App() {
   const [view, setView] = useState<View>('home')
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
-    try { return JSON.parse(localStorage.getItem('mise-inventory-v1') || '') || seedInventory } catch { return seedInventory }
+    try {
+      const stored = JSON.parse(localStorage.getItem('mise-inventory-v1') || '') || seedInventory
+      return stored.map((item: InventoryItem) => withExpirationDate(item))
+    } catch { return seedInventory.map((item) => withExpirationDate(item)) }
   })
   const [grocery, setGrocery] = useState<GroceryItem[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-grocery-v1') || '') || [] } catch { return [] }
@@ -51,6 +55,8 @@ function App() {
   const [householdId, setHouseholdId] = useState<string | null>(null)
   const [cloudReady, setCloudReady] = useState(false)
   const [syncState, setSyncState] = useState<'saved' | 'syncing' | 'error'>('saved')
+  const starterInventory = useRef(inventory)
+  const starterGrocery = useRef(grocery)
 
   useEffect(() => {
     if (!supabase) return
@@ -58,6 +64,10 @@ function App() {
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
       if (nextSession) setDemoMode(false)
+      else {
+        setHouseholdId(null)
+        setCloudReady(false)
+      }
       setAuthReady(true)
     })
     return () => data.subscription.unsubscribe()
@@ -69,7 +79,7 @@ function App() {
   }, [authReady])
 
   useEffect(() => {
-    if (!session || demoMode) { setHouseholdId(null); setCloudReady(false); return }
+    if (!session || demoMode) return
     let active = true
     async function hydrate() {
       try {
@@ -80,9 +90,9 @@ function App() {
         if (!active) return
         setHouseholdId(id)
         if (!cloud.initialized) {
-          const starterInventory = inventory.length ? inventory : seedInventory
-          setInventory(starterInventory)
-          await Promise.all([saveInventorySnapshot(id, starterInventory), saveGrocerySnapshot(id, grocery)])
+          const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
+          setInventory(initialInventory)
+          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current)])
           await markHouseholdInitialized(id)
         } else {
           setInventory(cloud.inventory)
@@ -108,15 +118,19 @@ function App() {
 
   useEffect(() => {
     if (!householdId || !cloudReady) return
-    setSyncState('syncing')
-    const timer = setTimeout(() => saveInventorySnapshot(householdId, inventory).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') }), 450)
+    const timer = setTimeout(() => {
+      setSyncState('syncing')
+      saveInventorySnapshot(householdId, inventory).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') })
+    }, 450)
     return () => clearTimeout(timer)
   }, [inventory, householdId, cloudReady])
 
   useEffect(() => {
     if (!householdId || !cloudReady) return
-    setSyncState('syncing')
-    const timer = setTimeout(() => saveGrocerySnapshot(householdId, grocery).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') }), 450)
+    const timer = setTimeout(() => {
+      setSyncState('syncing')
+      saveGrocerySnapshot(householdId, grocery).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') })
+    }, 450)
     return () => clearTimeout(timer)
   }, [grocery, householdId, cloudReady])
   useEffect(() => {
@@ -136,13 +150,17 @@ function App() {
     })
     const urgent = used.filter((ingredient) => {
       const item = inventory.find((entry) => normalize(entry.name) === normalize(ingredient.name))
-      return item?.expiresIn !== null && Number(item?.expiresIn) <= 3
+      const days = item ? daysUntilExpiration(item) : null
+      return days !== null && days <= 3
     }).length
     const available = Math.round(((recipe.ingredients.length - missing.length) / recipe.ingredients.length) * 100)
     return { ...recipe, missing, available, urgent, score: available + urgent * 8 }
   }).sort((a, b) => b.score - a.score), [inventory])
 
-  const urgentItems = [...inventory].filter((item) => item.expiresIn !== null && item.expiresIn <= 3).sort((a, b) => Number(a.expiresIn) - Number(b.expiresIn))
+  const urgentItems = [...inventory].filter((item) => {
+    const days = daysUntilExpiration(item)
+    return days !== null && days <= 3
+  }).sort((a, b) => Number(daysUntilExpiration(a)) - Number(daysUntilExpiration(b)))
   const counts = categories.map((category) => ({ category, count: inventory.filter((item) => item.category === category).length }))
   const readyCount = recipeMatches.filter((recipe) => recipe.missing.length === 0).length
 
@@ -158,10 +176,15 @@ function App() {
         const existing = merge ? next.find((entry) => normalize(entry.name) === normalize(item.name) && normalize(entry.unit) === normalize(item.unit)) : undefined
         if (existing) {
           existing.quantity = Number((existing.quantity + item.quantity).toFixed(2))
-          if (item.expiresIn !== null) existing.expiresIn = existing.expiresIn === null ? item.expiresIn : Math.min(existing.expiresIn, item.expiresIn)
+          const existingDate = existing.expiresOn || expirationDateFromDays(existing.expiresIn)
+          const itemDate = item.expiresOn || expirationDateFromDays(item.expiresIn)
+          if (itemDate && (!existingDate || itemDate < existingDate)) {
+            existing.expiresOn = itemDate
+            existing.expiresIn = daysUntilDate(itemDate)
+          }
           merged += 1
         } else {
-          next.push({ ...item, id: `${normalize(item.name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}-${next.length}` })
+          next.push({ ...withExpirationDate(item), id: `${normalize(item.name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}-${next.length}` })
         }
       })
       return next
@@ -311,7 +334,10 @@ function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount
 
       <article className="urgent-card panel">
         <div className="section-heading"><div><span className="eyebrow warning"><TriangleAlert size={13} /> Use soon</span><h2>Give these a plan</h2></div></div>
-        <div className="urgent-list">{urgentItems.slice(0, 3).map((item) => <div key={item.id}><span className="food-icon">{item.emoji}</span><p><strong>{item.name}</strong><small>{item.expiresIn === 0 ? 'Use today' : `${item.expiresIn} day${item.expiresIn === 1 ? '' : 's'} left`}</small></p><span className={`day-pill day-${Math.min(item.expiresIn || 0, 3)}`}>{item.expiresIn}d</span></div>)}</div>
+        <div className="urgent-list">{urgentItems.slice(0, 3).map((item) => {
+          const days = daysUntilExpiration(item) ?? 0
+          return <div key={item.id}><span className="food-icon">{item.emoji}</span><p><strong>{item.name}</strong><small>{days < 0 ? 'Past use-by date' : days === 0 ? 'Use today' : `${days} day${days === 1 ? '' : 's'} left`}</small></p><span className={`day-pill day-${Math.min(Math.max(days, 0), 3)}`}>{days < 0 ? '!' : `${days}d`}</span></div>
+        })}</div>
         <button className="soft-button" onClick={() => setView('recipes')}>Find recipes that use these <ArrowRight size={15} /></button>
       </article>
     </section>
@@ -349,10 +375,12 @@ function Kitchen({ inventory, setInventory, onAdd, onSmartAdd, onEdit }: { inven
 }
 
 function Freshness({ item }: { item: InventoryItem }) {
-  if (item.expiresIn === null) return <span className="freshness neutral">Shelf stable</span>
-  if (item.expiresIn <= 1) return <span className="freshness danger">Use {item.expiresIn === 0 ? 'today' : 'tomorrow'}</span>
-  if (item.expiresIn <= 3) return <span className="freshness soon">{item.expiresIn} days left</span>
-  return <span className="freshness fresh">Fresh · {item.expiresIn}d</span>
+  const days = daysUntilExpiration(item)
+  if (days === null) return <span className="freshness neutral">Shelf stable</span>
+  if (days < 0) return <span className="freshness danger">Past use-by</span>
+  if (days <= 1) return <span className="freshness danger">Use {days === 0 ? 'today' : 'tomorrow'}</span>
+  if (days <= 3) return <span className="freshness soon">{days} days left</span>
+  return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
 function Recipes({ recipes, setSelectedRecipe }: { recipes: RecipeMatch[]; setSelectedRecipe: (recipe: RecipeMatch) => void }) {
@@ -377,7 +405,7 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   function moveCheckedToKitchen() {
     const bought = grocery.filter((item) => item.checked)
     if (!bought.length) return
-    setInventory((items) => [...items, ...bought.map((item) => ({ id: `${normalize(item.name).replace(/\s/g, '-')}-${Date.now()}`, name: item.name, emoji: '🥫', quantity: item.amount, unit: item.unit, category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null }))])
+    setInventory((items) => [...items, ...bought.map((item) => ({ id: `${normalize(item.name).replace(/\s/g, '-')}-${Date.now()}`, name: item.name, emoji: '🥫', quantity: item.amount, unit: item.unit, category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null, expiresOn: null }))])
     setGrocery((items) => items.filter((item) => !item.checked)); notify(`${bought.length} purchased item${bought.length === 1 ? '' : 's'} moved to your kitchen`)
   }
   return <section className="inner-page">
@@ -392,7 +420,7 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
 
   function understand() {
     setItems(parseSmartEntry(entry).map((item) => ({
-      ...item,
+      ...withExpirationDate(item),
       merge: inventory.some((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit)),
     })))
   }
@@ -405,7 +433,7 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
     const duplicate = inventory.find((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit))
     return <article className="smart-review-card" key={item.id}>
       <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
-      <div className="smart-review-fields"><label>Quantity<input aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /></label><label>Unit<input aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => updateItem(item.id, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use in<input aria-label={`Freshness for ${item.name}`} type="number" min="0" placeholder="—" value={item.expiresIn ?? ''} onChange={(event) => updateItem(item.id, { expiresIn: event.target.value === '' ? null : Number(event.target.value) })} /><span>days</span></label></div>
+      <div className="smart-review-fields"><label>Quantity<input aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /></label><label>Unit<input aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => updateItem(item.id, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => updateItem(item.id, { expiresOn: event.target.value || null, expiresIn: daysUntilDate(event.target.value) })} /></label></div>
       {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
     </article>
   })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}</section></div>
@@ -436,12 +464,12 @@ function AddFood({ onClose, onAdd, initialItem }: { onClose: () => void; onAdd: 
   const [unit, setUnit] = useState(initialItem?.unit || 'item')
   const [category, setCategory] = useState<Category>(initialItem?.category || 'Produce')
   const [location, setLocation] = useState<Location>(initialItem?.location || 'Fridge')
-  const [expiresIn, setExpiresIn] = useState(initialItem?.expiresIn === null ? '' : String(initialItem?.expiresIn ?? 7))
+  const [expiresOn, setExpiresOn] = useState(initialItem ? (initialItem.expiresOn || expirationDateFromDays(initialItem.expiresIn) || '') : (expirationDateFromDays(7) || ''))
   function submit(event: React.FormEvent) {
     event.preventDefault(); if (!name.trim()) return
-    onAdd({ id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity, unit, category, location, expiresIn: expiresIn === '' ? null : Number(expiresIn) })
+    onAdd({ id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity, unit, category, location, expiresIn: daysUntilDate(expiresOn), expiresOn: expiresOn || null })
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2></div><button type="button" onClick={onClose}><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label><fieldset className="icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Quantity<input type="number" min="0.1" step="0.1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></label><label>Unit<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="items" /></label></div><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => setLocation(e.target.value as Location)}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><label>Use within <div className="input-suffix"><input type="number" min="0" value={expiresIn} onChange={(e) => setExpiresIn(e.target.value)} placeholder="Optional" /><span>days</span></div></label><button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2></div><button type="button" onClick={onClose}><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label><fieldset className="icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Quantity<input type="number" min="0.1" step="0.1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></label><label>Unit<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="items" /></label></div><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => setLocation(e.target.value as Location)}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><label>Use-by date<input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} /></label><button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
 }
 
 function RecipeSheet({ recipe, inventory, onClose, onAction }: { recipe: RecipeMatch; inventory: InventoryItem[]; onClose: () => void; onAction: (scale: number) => void }) {
