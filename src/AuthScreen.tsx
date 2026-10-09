@@ -43,6 +43,21 @@ export default function AuthScreen({ onDemo }: { onDemo: () => void }) {
     }
   }
 
+  async function resetPassword() {
+    if (!supabase) return
+    if (!email.trim()) {
+      setMessage({ type: 'error', text: 'Enter your email address first.' })
+      return
+    }
+    setLoading(true)
+    setMessage(null)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/` })
+    setLoading(false)
+    setMessage(error
+      ? { type: 'error', text: error.message }
+      : { type: 'success', text: 'Password reset email sent. Check your inbox for the secure link.' })
+  }
+
   return <main className="auth-page">
     <section className="auth-story">
       <div className="auth-brand"><span><Leaf /></span>Mise</div>
@@ -59,6 +74,7 @@ export default function AuthScreen({ onDemo }: { onDemo: () => void }) {
         {mode === 'signup' && <label>Your name<div><Sparkles /><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Gourav" autoComplete="name" /></div></label>}
         <label>Email address<div><Mail /><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" /></div></label>
         <label>Password<div><LockKeyhole /><input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} /></div></label>
+        {mode === 'signin' && <button className="forgot-button" type="button" onClick={resetPassword} disabled={loading}>Forgot password?</button>}
         {message && <div className={`auth-message ${message.type}`}>{message.text}</div>}
         <button className="auth-submit" disabled={loading}>{loading ? 'One moment…' : mode === 'signin' ? 'Sign in' : 'Create account'} <ArrowRight /></button>
         <button className="auth-switch" type="button" onClick={() => { setMode((current) => current === 'signin' ? 'signup' : 'signin'); setMessage(null) }}>{mode === 'signin' ? 'New to Mise? Create an account' : 'Already have an account? Sign in'}</button>

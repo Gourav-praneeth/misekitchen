@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
-  Leaf, ListFilter, LogOut, MessageSquareText, Minus, PackageOpen, Pencil, Plus, Search, Send,
-  ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, X,
+  KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
+  Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, WifiOff, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
@@ -10,17 +10,32 @@ import { recipes, seedInventory } from './data'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { parseSmartEntry } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, submitFeedback, supabase } from './supabase'
+import { withRetry } from './sync'
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
 
-type View = 'home' | 'kitchen' | 'recipes' | 'grocery'
+type View = 'home' | 'kitchen' | 'recipes' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
+type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type RecipeMatch = Recipe & { available: number; missing: GroceryItem[]; urgent: number; score: number }
 type SmartReviewItem = InventoryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
 const foodIcons = ['🍗', '🥩', '🐟', '🥚', '🥬', '🥦', '🥕', '🥑', '🍅', '🌽', '🫛', '🍎', '🍌', '🫐', '🍓', '🍋', '🍊', '🧅', '🧄', '🥔', '🍄', '🥛', '🧀', '🧈', '🥣', '🍚', '🌾', '🍞', '🍝', '🥫', '🧊', '🧂']
+
+function kitchenStorageKey(kind: 'cache' | 'pending', userId: string) {
+  return `mise-cloud-${kind}-v1-${userId}`
+}
+
+function readStoredKitchen(kind: 'cache' | 'pending', userId: string): StoredKitchen | null {
+  try { return JSON.parse(localStorage.getItem(kitchenStorageKey(kind, userId)) || '') || null } catch { return null }
+}
+
+function writeStoredKitchen(kind: 'cache' | 'pending', userId: string, kitchen: StoredKitchen) {
+  localStorage.setItem(kitchenStorageKey(kind, userId), JSON.stringify(kitchen))
+}
 
 function getGreeting() {
   const hour = new Date().getHours()
@@ -56,23 +71,36 @@ function App() {
   const [demoMode, setDemoMode] = useState(false)
   const [householdId, setHouseholdId] = useState<string | null>(null)
   const [cloudReady, setCloudReady] = useState(false)
-  const [syncState, setSyncState] = useState<'saved' | 'syncing' | 'error'>('saved')
+  const [syncState, setSyncState] = useState<SyncState>('saved')
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [retryToken, setRetryToken] = useState(0)
+  const [loadRetryToken, setLoadRetryToken] = useState(0)
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false)
   const starterInventory = useRef(inventory)
   const starterGrocery = useRef(grocery)
 
   useEffect(() => {
     if (!supabase) return
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true) })
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession)
       if (nextSession) setDemoMode(false)
       else {
         setHouseholdId(null)
         setCloudReady(false)
       }
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryOpen(true)
       setAuthReady(true)
     })
     return () => data.subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    function online() { setIsOnline(true); setRetryToken((value) => value + 1) }
+    function offline() { setIsOnline(false); setSyncState('offline') }
+    window.addEventListener('online', online)
+    window.addEventListener('offline', offline)
+    return () => { window.removeEventListener('online', online); window.removeEventListener('offline', offline) }
   }, [])
 
   useEffect(() => {
@@ -85,13 +113,28 @@ function App() {
     let active = true
     async function hydrate() {
       try {
+        const localKitchen = readStoredKitchen('pending', session!.user.id) || readStoredKitchen('cache', session!.user.id)
+        if (!isOnline) {
+          if (localKitchen) {
+            setHouseholdId(localKitchen.householdId)
+            setInventory(localKitchen.inventory.map((item) => withExpirationDate(item)))
+            setGrocery(localKitchen.grocery)
+            setCloudReady(true)
+          }
+          setSyncState('offline')
+          return
+        }
         setSyncState('syncing')
         const id = await getHouseholdId(session!.user.id)
         if (!id) throw new Error('No kitchen was created for this account.')
         const cloud = await loadCloudKitchen(id)
         if (!active) return
         setHouseholdId(id)
-        if (!cloud.initialized) {
+        const pending = readStoredKitchen('pending', session!.user.id)
+        if (pending?.householdId === id) {
+          setInventory(pending.inventory.map((item) => withExpirationDate(item)))
+          setGrocery(pending.grocery)
+        } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
           setInventory(initialInventory)
           await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current)])
@@ -99,17 +142,18 @@ function App() {
         } else {
           setInventory(cloud.inventory)
           setGrocery(cloud.grocery)
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, savedAt: new Date().toISOString() })
         }
         setCloudReady(true)
-        setSyncState('saved')
+        setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
       } catch (error) {
         console.error(error)
-        if (active) setSyncState('error')
+        if (active) setSyncState(navigator.onLine ? 'error' : 'offline')
       }
     }
     hydrate()
     return () => { active = false }
-  }, [session, demoMode])
+  }, [session, demoMode, isOnline, loadRetryToken])
 
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-inventory-v1', JSON.stringify(inventory))
@@ -119,22 +163,31 @@ function App() {
   }, [grocery, session, demoMode])
 
   useEffect(() => {
-    if (!householdId || !cloudReady) return
-    const timer = setTimeout(() => {
+    if (!householdId || !cloudReady || !session) return
+    const snapshot = { householdId, inventory, grocery, savedAt: new Date().toISOString() }
+    writeStoredKitchen('pending', session.user.id, snapshot)
+    const timer = window.setTimeout(async () => {
+      if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
-      saveInventorySnapshot(householdId, inventory).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') })
-    }, 450)
-    return () => clearTimeout(timer)
-  }, [inventory, householdId, cloudReady])
+      try {
+        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery)]))
+        localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
+        writeStoredKitchen('cache', session.user.id, snapshot)
+        setSyncState('saved')
+      } catch (error) {
+        console.error(error)
+        setSyncState(navigator.onLine ? 'error' : 'offline')
+      }
+    }, retryToken ? 50 : 450)
+    return () => window.clearTimeout(timer)
+  }, [inventory, grocery, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
-    if (!householdId || !cloudReady) return
-    const timer = setTimeout(() => {
-      setSyncState('syncing')
-      saveGrocerySnapshot(householdId, grocery).then(() => setSyncState('saved')).catch((error) => { console.error(error); setSyncState('error') })
-    }, 450)
-    return () => clearTimeout(timer)
-  }, [grocery, householdId, cloudReady])
+    if (syncState === 'saved') return
+    function protectUnsaved(event: BeforeUnloadEvent) { event.preventDefault() }
+    window.addEventListener('beforeunload', protectUnsaved)
+    return () => window.removeEventListener('beforeunload', protectUnsaved)
+  }, [syncState])
   useEffect(() => {
     if (!toast) return
     const timer = setTimeout(() => setToast(null), toast.undo ? 6500 : 3200)
@@ -167,6 +220,34 @@ function App() {
   const readyCount = recipeMatches.filter((recipe) => recipe.missing.length === 0).length
 
   function notify(message: string) { setToast({ message }) }
+
+  function retrySync() {
+    if (!navigator.onLine) { setSyncState('offline'); notify('You are still offline. Mise will retry when you reconnect.'); return }
+    setIsOnline(true)
+    setSyncState('syncing')
+    setRetryToken((value) => value + 1)
+  }
+
+  function retryKitchenLoad() {
+    setIsOnline(navigator.onLine)
+    setSyncState(navigator.onLine ? 'syncing' : 'offline')
+    setLoadRetryToken((value) => value + 1)
+  }
+
+  async function sendPasswordReset() {
+    const email = session?.user.email
+    if (!supabase || !email) throw new Error('No email address is available for this account.')
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/` })
+    if (error) throw error
+    notify('Password reset email sent')
+  }
+
+  async function updateProfileName(name: string) {
+    if (!supabase) throw new Error('Profile updates are unavailable.')
+    const { error } = await supabase.auth.updateUser({ data: { display_name: name.trim() } })
+    if (error) throw error
+    notify('Profile name updated')
+  }
 
   function addSmartItems(items: SmartReviewItem[]) {
     const validItems = items.filter((item) => item.name.trim() && item.quantity > 0)
@@ -254,6 +335,7 @@ function App() {
 
   if (cloudEnabled && !authReady) return <div className="app-loading"><span className="brand-mark"><Leaf /></span><strong>Opening your kitchen…</strong></div>
   if (cloudEnabled && !session && !demoMode) return <AuthScreen onDemo={() => setDemoMode(true)} />
+  if (cloudEnabled && session && !cloudReady) return <div className="app-loading cloud-startup"><span className="brand-mark">{isOnline ? <Leaf /> : <WifiOff />}</span><div><strong>{!isOnline ? 'You are offline' : syncState === 'error' ? 'Kitchen could not load' : 'Opening your kitchen…'}</strong><small>{!isOnline ? 'Reconnect to load this kitchen on this device.' : syncState === 'error' ? 'Your connection is available, but cloud loading failed.' : 'Loading your saved ingredients.'}</small>{(!isOnline || syncState === 'error') && <button onClick={retryKitchenLoad}><RefreshCw /> Try again</button>}</div></div>
 
   const metadata = session?.user.user_metadata
   const displayName = [metadata?.display_name, metadata?.full_name, metadata?.name, metadata?.given_name]
@@ -275,6 +357,7 @@ function App() {
           <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenCategory('All'); setView('kitchen') }} />
           <NavButton active={view === 'recipes'} icon={<CookingPot />} label="What can I make?" badge={readyCount} onClick={() => setView('recipes')} />
           <NavButton active={view === 'grocery'} icon={<ShoppingBasket />} label="Grocery list" badge={grocery.filter((item) => !item.checked).length} onClick={() => setView('grocery')} />
+          <NavButton active={view === 'settings'} icon={<SettingsIcon />} label="Settings" onClick={() => setView('settings')} />
         </nav>
         <div className="sidebar-note">
           <span><Leaf size={15} /> This week</span>
@@ -288,7 +371,9 @@ function App() {
         <header className="topbar">
           <div className="mobile-brand"><Leaf size={18} /> Mise</div>
           <button className="search-button"><Search size={17} /><span>Search your kitchen</span><kbd>⌘ K</kbd></button>
-          {session && <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : syncState === 'syncing' ? 'Saving…' : 'Sync issue'}</span>}
+          {session && (syncState === 'error' || syncState === 'offline'
+            ? <button className={`sync-state ${syncState}`} onClick={retrySync} title="Retry cloud sync">{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : 'Retry sync'}</button>
+            : <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : 'Saving…'}</span>)}
           {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)}><MessageSquareText size={16} /><span>Feedback</span></button>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add ingredients</button>
@@ -299,12 +384,14 @@ function App() {
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
+          {view === 'settings' && <SettingsPage session={session} displayName={displayName} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onSignOut={leaveAccount} />}
         </div>
       </main>
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { setInventory((current) => [...current, item]); setAddOpen(false); notify(`${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onAdd={addSmartItems} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
+      {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
       {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} />}
       {toast && <div className="toast"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button onClick={toast.undo}><Undo2 size={14} /> Undo</button>}</div>}
@@ -313,7 +400,7 @@ function App() {
 }
 
 function NavButton({ active, icon, label, badge, onClick }: { active: boolean; icon: React.ReactNode; label: string; badge?: number; onClick: () => void }) {
-  return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
+  return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick} aria-label={label}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
 }
 
 function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
@@ -415,6 +502,59 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   </section>
 }
 
+function SettingsPage({ session, displayName, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onSignOut }: {
+  session: Session | null; displayName: string; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
+  onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onSignOut: () => Promise<void>
+}) {
+  const [name, setName] = useState(displayName)
+  const [working, setWorking] = useState<'name' | 'password' | null>(null)
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const provider = session?.user.app_metadata.provider === 'google' ? 'Google' : 'Email and password'
+  const syncCopy: Record<SyncState, string> = {
+    saved: 'Everything is safely stored in your cloud kitchen.',
+    syncing: 'Your latest changes are being saved now.',
+    error: 'Your changes are safe on this device and waiting to sync.',
+    offline: 'You can keep working. Changes will sync when you reconnect.',
+  }
+
+  async function saveName(event: React.FormEvent) {
+    event.preventDefault()
+    if (!name.trim() || name.trim() === displayName) return
+    setWorking('name'); setMessage(null)
+    try { await onUpdateName(name); setMessage({ type: 'success', text: 'Your name was updated.' }) }
+    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Name could not be updated.' }) }
+    finally { setWorking(null) }
+  }
+
+  async function resetPassword() {
+    setWorking('password'); setMessage(null)
+    try { await onResetPassword(); setMessage({ type: 'success', text: 'Check your inbox for the secure password link.' }) }
+    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Reset email could not be sent.' }) }
+    finally { setWorking(null) }
+  }
+
+  return <section className="inner-page settings-page">
+    <div className="page-title"><div><span className="eyebrow">Your Mise</span><h1>Settings</h1><p>Manage your profile, account security, and kitchen sync.</p></div></div>
+    {message && <div className={`settings-message ${message.type}`}>{message.text}</div>}
+    <div className="settings-grid">
+      <article className="settings-card panel">
+        <div className="settings-card-head"><span><UserRound /></span><div><h2>Profile</h2><p>How you appear in your kitchen.</p></div></div>
+        {session ? <form onSubmit={saveName}><label>Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Email address<input value={session.user.email || ''} disabled /></label><button className="secondary-button" disabled={working === 'name' || !name.trim() || name.trim() === displayName}>{working === 'name' ? 'Saving…' : 'Save profile'}</button></form> : <p className="settings-copy">You are using the local demo. Sign in when you want this kitchen on your other devices.</p>}
+      </article>
+      <article className="settings-card panel">
+        <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
+        <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
+        {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> Retry sync</button>}
+      </article>
+      <article className="settings-card panel">
+        <div className="settings-card-head"><span><ShieldCheck /></span><div><h2>Account & security</h2><p>{session ? `Signed in with ${provider}.` : 'Local demo mode.'}</p></div></div>
+        {session && <div className="settings-actions"><button className="secondary-button" onClick={resetPassword} disabled={working === 'password'}><Mail /> {working === 'password' ? 'Sending…' : 'Send password reset email'}</button><button className="danger-button" onClick={onSignOut}><LogOut /> Sign out</button></div>}
+        <p className="privacy-note"><KeyRound /> Mise never stores your password. Authentication is handled securely by Supabase.</p>
+      </article>
+    </div>
+  </section>
+}
+
 function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
   const [entry, setEntry] = useState('2 lb chicken breast, a bag of spinach, 6 eggs')
   const [items, setItems] = useState<SmartReviewItem[]>([])
@@ -438,6 +578,26 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
       {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
     </article>
   })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}</section></div>
+}
+
+function PasswordRecoveryModal({ onClose }: { onClose: () => void }) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!supabase || password.length < 6) return
+    if (password !== confirmation) { setMessage({ type: 'error', text: 'The passwords do not match.' }); return }
+    setLoading(true); setMessage(null)
+    const { error } = await supabase.auth.updateUser({ password })
+    setLoading(false)
+    if (error) { setMessage({ type: 'error', text: error.message }); return }
+    setMessage({ type: 'success', text: 'Password updated. You can continue using Mise.' })
+  }
+
+  return <div className="modal-backdrop"><form className="modal recovery-modal" onSubmit={submit}><div className="modal-head"><div><span className="eyebrow"><KeyRound size={12} /> Account recovery</span><h2>Choose a new password</h2></div>{message?.type === 'success' && <button type="button" onClick={onClose} aria-label="Close password recovery"><X /></button>}</div><p className="modal-intro">Use at least six characters. This will replace your previous email password.</p><label>New password<input autoFocus required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label><label>Confirm password<input required minLength={6} type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" /></label>{message && <div className={`auth-message ${message.type}`}>{message.text}</div>}<button className="submit-button" disabled={loading || password.length < 6 || confirmation.length < 6}>{loading ? 'Updating…' : 'Update password'} <ArrowRight /></button></form></div>
 }
 
 function FeedbackModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (category: string, message: string) => Promise<void> }) {

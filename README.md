@@ -46,6 +46,8 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - New accounts automatically receive a private household.
 - The first sign-in imports the user's existing local demo kitchen into the cloud.
 - Inventory and grocery changes are saved after a short debounce.
+- Signed-in kitchens keep an account-scoped browser cache and a pending-change snapshot so temporary connection loss does not discard edits.
+- Failed cloud saves retry automatically, remain available for manual retry, and resume when the browser reconnects.
 - Ingredient freshness is stored as a calendar use-by date, with legacy `expires_in` values migrated automatically.
 - Each query is restricted to authenticated household members by Row Level Security.
 - Signed-out users can explicitly continue with a browser-only demo.
@@ -59,6 +61,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - Natural-language bulk entry with editable suggestions for quantity, storage, category, icon, and freshness
 - Duplicate detection, quantity merging, and one-click undo for smart entry
 - Private in-app beta feedback with lightweight screen context
+- Account and sync settings, profile-name updates, password recovery, and an application recovery screen
 - Recipe matching against current ingredient quantities
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
