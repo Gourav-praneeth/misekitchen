@@ -65,7 +65,7 @@ const numberPattern = '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?|\\b(?
 const unitPattern = Object.keys(unitAliases).sort((a, b) => b.length - a.length).join('|')
 
 function titleCase(value: string) {
-  return value.replace(/\b\w/g, (letter) => letter.toUpperCase())
+  return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function hintFor(name: string) {
