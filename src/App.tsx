@@ -8,7 +8,8 @@ import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
-import { parseSmartEntry } from './smartEntry'
+import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
+import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, submitFeedback, supabase } from './supabase'
 import { withRetry } from './sync'
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
@@ -17,7 +18,7 @@ type View = 'home' | 'kitchen' | 'recipes' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type RecipeMatch = Recipe & { available: number; missing: GroceryItem[]; urgent: number; score: number }
-type SmartReviewItem = InventoryItem & { merge: boolean }
+type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
 type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; savedAt: string }
 
@@ -255,8 +256,19 @@ function App() {
     let merged = 0
     setInventory((current) => {
       const next = current.map((item) => ({ ...item }))
-      validItems.forEach(({ merge, ...item }) => {
-        const existing = merge ? next.find((entry) => normalize(entry.name) === normalize(item.name) && normalize(entry.unit) === normalize(item.unit)) : undefined
+      validItems.forEach((reviewItem) => {
+        const item: InventoryItem = {
+          id: reviewItem.id,
+          name: reviewItem.name,
+          emoji: reviewItem.emoji,
+          quantity: reviewItem.quantity,
+          unit: reviewItem.unit,
+          category: reviewItem.category,
+          location: reviewItem.location,
+          expiresIn: reviewItem.expiresIn,
+          expiresOn: reviewItem.expiresOn,
+        }
+        const existing = reviewItem.merge ? next.find((entry) => sameFoodAndUnit(entry, item)) : undefined
         if (existing) {
           existing.quantity = Number((existing.quantity + item.quantity).toFixed(2))
           const existingDate = existing.expiresOn || expirationDateFromDays(existing.expiresIn)
@@ -562,7 +574,7 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
   function understand() {
     setItems(parseSmartEntry(entry).map((item) => ({
       ...withExpirationDate(item),
-      merge: inventory.some((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit)),
+      merge: inventory.some((existing) => sameFoodAndUnit(existing, item)),
     })))
   }
 
@@ -570,11 +582,13 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...updates } : item))
   }
 
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Smarter food entry</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose} aria-label="Close smart add"><X /></button></div><p className="modal-intro">Use everyday language. Mise will separate the foods, infer the details, and flag anything already in your kitchen.</p><label>Grocery note<textarea autoFocus value={entry} onChange={(event) => setEntry(event.target.value)} placeholder="Try: 2 lb chicken, six eggs, a bag of spinach…" /></label><div className="smart-examples"><span>Try an example:</span><button type="button" onClick={() => setEntry('4 avocados, 2 cartons of milk, a box of blueberries')}>Produce run</button><button type="button" onClick={() => setEntry('1 lb salmon, 2 cups rice, broccoli and a lemon')}>Dinner ingredients</button></div><button type="button" className="understand-button" onClick={understand} disabled={!entry.trim()}><Sparkles size={16} /> Review my list</button>{items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>Everything stays editable</span></div><div className="smart-review-list">{items.map((item) => {
-    const duplicate = inventory.find((existing) => normalize(existing.name) === normalize(item.name) && normalize(existing.unit) === normalize(item.unit))
+  const reviewCount = items.filter((item) => item.confidence === 'low').length
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Smart Entry 2.0</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose} aria-label="Close smart add"><X /></button></div><p className="modal-intro">Type naturally or paste receipt lines. Mise recognizes quantities, metric units, storage instructions, freshness notes, and food already in your kitchen.</p><label>Grocery note<textarea autoFocus value={entry} onChange={(event) => setEntry(event.target.value)} placeholder={'Try one item per line:\n2 lb frozen chicken, use within 30 days\n6 eggs\n500 g rice'} /></label><div className="smart-examples"><span>Try an example:</span><button type="button" onClick={() => setEntry('• 4 avocados $5.99\n• 2 cartons of milk $7.98\n• a box of blueberries $4.25')}>Receipt lines</button><button type="button" onClick={() => setEntry('2 lb frozen chicken use within 30 days, 500 g rice, broccoli and a lemon')}>Freezer restock</button></div><button type="button" className="understand-button" onClick={understand} disabled={!entry.trim()}><Sparkles size={16} /> Review my list</button>{items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>{reviewCount ? `${reviewCount} need${reviewCount === 1 ? 's' : ''} a quick check` : 'All details recognized'}</span></div><div className="smart-review-list">{items.map((item) => {
+    const duplicate = inventory.find((existing) => sameFoodAndUnit(existing, item))
     return <article className="smart-review-card" key={item.id}>
       <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
-      <div className="smart-review-fields"><label>Quantity<input aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /></label><label>Unit<input aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => updateItem(item.id, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => updateItem(item.id, { expiresOn: event.target.value || null, expiresIn: daysUntilDate(event.target.value) })} /></label></div>
+      <div className="smart-review-fields"><label>Quantity<input aria-label={`Quantity for ${item.name}`} type="number" min="0.1" step="0.1" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: Number(event.target.value) })} /></label><label>Unit<input aria-label={`Unit for ${item.name}`} value={item.unit} onChange={(event) => updateItem(item.id, { unit: event.target.value })} /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => updateItem(item.id, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => updateItem(item.id, { expiresOn: event.target.value || null, expiresIn: daysUntilDate(event.target.value) })} /></label></div><div className={`smart-confidence ${item.confidence}`}><Sparkles size={12} /> {item.explanation}</div>
       {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
     </article>
   })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}</section></div>

@@ -58,8 +58,8 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - Kitchen status overview with category counts and freshness score
 - Expiration-aware “use soon” list
 - Inventory search, filters, quantity controls, add, and remove
-- Natural-language bulk entry with editable suggestions for quantity, storage, category, icon, and freshness
-- Duplicate detection, quantity merging, and one-click undo for smart entry
+- Smart Entry 2.0 for natural-language notes and multiline receipt text, including metric units, storage and freshness cues, and confidence-based review prompts
+- Stronger duplicate detection across common name/unit variants, quantity merging, and one-click undo
 - Private in-app beta feedback with lightweight screen context
 - Account and sync settings, profile-name updates, password recovery, and an application recovery screen
 - Recipe matching against current ingredient quantities
