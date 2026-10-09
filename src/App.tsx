@@ -13,6 +13,7 @@ import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialize
 import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'grocery'
+type KitchenCategory = 'All' | Category
 type RecipeMatch = Recipe & { available: number; missing: GroceryItem[]; urgent: number; score: number }
 type SmartReviewItem = InventoryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
@@ -34,6 +35,7 @@ function normalize(value: string) {
 
 function App() {
   const [view, setView] = useState<View>('home')
+  const [kitchenCategory, setKitchenCategory] = useState<KitchenCategory>('All')
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('mise-inventory-v1') || '') || seedInventory
@@ -270,7 +272,7 @@ function App() {
         </button>
         <nav>
           <NavButton active={view === 'home'} icon={<Sparkles />} label="Overview" onClick={() => setView('home')} />
-          <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => setView('kitchen')} />
+          <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenCategory('All'); setView('kitchen') }} />
           <NavButton active={view === 'recipes'} icon={<CookingPot />} label="What can I make?" badge={readyCount} onClick={() => setView('recipes')} />
           <NavButton active={view === 'grocery'} icon={<ShoppingBasket />} label="Grocery list" badge={grocery.filter((item) => !item.checked).length} onClick={() => setView('grocery')} />
         </nav>
@@ -289,12 +291,12 @@ function App() {
           {session && <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : syncState === 'syncing' ? 'Saving…' : 'Sync issue'}</span>}
           {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)}><MessageSquareText size={16} /><span>Feedback</span></button>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
-          <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add food</button>
+          <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add ingredients</button>
         </header>
 
         <div className="page">
-          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} setSelectedRecipe={setSelectedRecipe} />}
-          {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
+          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
+          {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
         </div>
@@ -314,10 +316,10 @@ function NavButton({ active, icon, label, badge, onClick }: { active: boolean; i
   return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
 }
 
-function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, setSelectedRecipe }: {
+function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
   displayName: string;
   inventory: InventoryItem[]; counts: { category: Category; count: number }[]; urgentItems: InventoryItem[]; recipes: RecipeMatch[];
-  readyCount: number; groceryCount: number; setView: (view: View) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
+  readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
 }) {
   const best = recipes[0]
   return <>
@@ -328,8 +330,8 @@ function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount
 
     <section className="status-grid">
       <article className="kitchen-card panel">
-        <div className="section-heading"><div><span className="eyebrow">Kitchen status</span><h2>{inventory.length} ingredients at home</h2></div><button className="text-button" onClick={() => setView('kitchen')}>See everything <ArrowRight size={15} /></button></div>
-        <div className="category-grid">{counts.filter((entry) => entry.count > 0).map(({ category, count }) => <button key={category} onClick={() => setView('kitchen')}><span>{categoryEmoji[category]}</span><strong>{count}</strong><small>{category}</small></button>)}</div>
+        <div className="section-heading"><div><span className="eyebrow">Kitchen status</span><h2>{inventory.length} ingredients at home</h2></div><button className="text-button" onClick={() => openKitchen()}>See everything <ArrowRight size={15} /></button></div>
+        <div className="category-grid">{counts.filter((entry) => entry.count > 0).map(({ category, count }) => <button key={category} onClick={() => openKitchen(category)}><span>{categoryEmoji[category]}</span><strong>{count}</strong><small>{category}</small></button>)}</div>
       </article>
 
       <article className="urgent-card panel">
@@ -362,12 +364,11 @@ function RecipeCard({ recipe, featured, onClick }: { recipe: RecipeMatch; featur
   </button>
 }
 
-function Kitchen({ inventory, setInventory, onAdd, onSmartAdd, onEdit }: { inventory: InventoryItem[]; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void }) {
+function Kitchen({ inventory, setInventory, category, setCategory, onAdd, onSmartAdd, onEdit }: { inventory: InventoryItem[]; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void }) {
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<'All' | Category>('All')
   const filtered = inventory.filter((item) => (category === 'All' || item.category === category) && normalize(item.name).includes(normalize(query)))
   return <section className="inner-page">
-    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>Keep a light touch on what you have, where it lives, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add food</button></div></div>
+    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>Keep a light touch on what you have, where it lives, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
     <div className="toolbar"><label><Search size={17} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs">{(['All', ...categories] as const).map((option) => <button className={category === option ? 'active' : ''} onClick={() => setCategory(option)} key={option}>{option}</button>)}</div></div>
     <div className="inventory-table panel"><div className="table-head"><span>Ingredient</span><span>Quantity</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}</small></p></button><div className="quantity-control"><button onClick={() => setInventory((all) => all.map((entry) => entry.id === item.id ? { ...entry, quantity: Math.max(0, Number((entry.quantity - 1).toFixed(1))) } : entry))}><Minus /></button><strong>{item.quantity}</strong><small>{item.unit}</small><button onClick={() => setInventory((all) => all.map((entry) => entry.id === item.id ? { ...entry, quantity: Number((entry.quantity + 1).toFixed(1)) } : entry))}><Plus /></button></div><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => setInventory((all) => all.filter((entry) => entry.id !== item.id))} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
     {!filtered.length && <Empty title="Nothing found" copy="Try another search or add a new ingredient." />}
