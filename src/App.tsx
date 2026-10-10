@@ -10,14 +10,15 @@ import { recipes, seedInventory } from './data'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
+import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { scanReceiptImage } from './receiptScanner'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
+import { cloudEnabled, getHouseholdId, loadCloudKitchen, loadFoodPreferences, markHouseholdInitialized, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
 import { withRetry } from './sync'
-import type { Category, GroceryItem, InventoryItem, Location, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Location, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
@@ -67,6 +68,9 @@ function App() {
   })
   const [customRecipes, setCustomRecipes] = useState<Recipe[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-recipes-v1') || '') || [] } catch { return [] }
+  })
+  const [foodPreferences, setFoodPreferences] = useState<FoodPreferences>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-food-preferences-v1') || '') || emptyFoodPreferences } catch { return emptyFoodPreferences }
   })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
@@ -179,6 +183,18 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-recipes-v1', JSON.stringify(customRecipes))
   }, [customRecipes, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-food-preferences-v1', JSON.stringify(foodPreferences))
+  }, [foodPreferences, session, demoMode])
+
+  useEffect(() => {
+    if (!session || demoMode) return
+    let active = true
+    loadFoodPreferences(session.user.id)
+      .then((preferences) => { if (active) setFoodPreferences(preferences) })
+      .catch((error) => console.error('Food preferences could not be loaded.', error))
+    return () => { active = false }
+  }, [session, demoMode])
 
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
@@ -213,8 +229,8 @@ function App() {
   }, [toast])
 
   const recipeMatches = useMemo<RecipeMatch[]>(
-    () => matchRecipes([...customRecipes, ...recipes], inventory),
-    [customRecipes, inventory],
+    () => matchRecipes([...customRecipes, ...recipes], inventory, foodPreferences),
+    [customRecipes, inventory, foodPreferences],
   )
 
   const urgentItems = [...inventory].filter((item) => {
@@ -252,6 +268,12 @@ function App() {
     const { error } = await supabase.auth.updateUser({ data: { display_name: name.trim() } })
     if (error) throw error
     notify('Profile name updated')
+  }
+
+  async function updateFoodPreferences(preferences: FoodPreferences) {
+    if (session) await saveFoodPreferences(session.user.id, preferences)
+    setFoodPreferences(preferences)
+    notify('Food preferences saved')
   }
 
   function addSmartItems(items: SmartReviewItem[]) {
@@ -421,9 +443,9 @@ function App() {
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} accessToken={session?.access_token || ''} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onAddToGrocery={addToGrocery} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onAddToGrocery={addToGrocery} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
-          {view === 'settings' && <SettingsPage session={session} displayName={displayName} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onSignOut={leaveAccount} />}
+          {view === 'settings' && <SettingsPage session={session} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onSignOut={leaveAccount} />}
         </div>
       </main>
 
@@ -486,7 +508,7 @@ function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount
 
 function RecipeCard({ recipe, featured, onClick }: { recipe: RecipeMatch; featured?: boolean; onClick: () => void }) {
   return <button className={featured ? 'recipe-card featured' : 'recipe-card'} onClick={onClick} style={{ '--accent': recipe.accent } as React.CSSProperties}>
-    <div className="recipe-art"><span>{recipe.emoji}</span>{recipe.source === 'user' && <b>My recipe</b>}{recipe.urgent > 0 && <em><Leaf size={13} /> Uses {recipe.urgent} use-soon</em>}</div>
+    <div className="recipe-art"><span>{recipe.emoji}</span>{recipe.source === 'user' && <b>My recipe</b>}{recipe.preferenceWarnings.length > 0 && <i><TriangleAlert size={12} /> Check preferences</i>}{recipe.urgent > 0 && <em><Leaf size={13} /> Uses {recipe.urgent} use-soon</em>}</div>
     <div className="recipe-info"><div className="match-line"><span className={recipe.missing.length ? 'match almost' : 'match'}>{recipe.missing.length ? `${recipe.available}% match` : 'Ready now'}</span><small><Clock3 size={13} /> {recipe.time} min</small></div><h3>{recipe.name}</h3><p>{recipe.description}</p><div className="recipe-footer"><span>{recipe.protein}g protein</span><strong>{recipe.missing.length ? `Needs ${recipe.missing.length}` : 'Cook this'} <ArrowRight size={14} /></strong></div></div>
   </button>
 }
@@ -511,7 +533,7 @@ function Freshness({ item }: { item: InventoryItem }) {
   return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
-function Recipes({ recipes, inventory, accessToken, setSelectedRecipe, onAdd, onAddToGrocery }: { recipes: RecipeMatch[]; inventory: InventoryItem[]; accessToken: string; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
+function Recipes({ recipes, inventory, preferences, accessToken, setSelectedRecipe, onAdd, onAddToGrocery }: { recipes: RecipeMatch[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
   const [sort, setSort] = useState<'match' | 'time' | 'urgent'>('match')
   const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'quick' | 'protein' | 'discover'>('all')
   const filtered = recipes.filter((recipe) => filter === 'mine' ? recipe.source === 'user' : filter === 'ready' ? recipe.missing.length === 0 : filter === 'quick' ? recipe.time <= 20 : filter === 'protein' ? recipe.protein >= 35 : true)
@@ -519,11 +541,11 @@ function Recipes({ recipes, inventory, accessToken, setSelectedRecipe, onAdd, on
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Cook from what you have</span><h1>What can I make?</h1><p>Your recipes and Mise ideas are ranked by what is already in your kitchen.</p></div><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add my recipe</button></div>
     <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All ideas'], ['mine', 'My recipes'], ['ready', 'Ready now'], ['quick', '20 min or less'], ['protein', 'High protein'], ['discover', 'Discover']] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{label}</button>)}</div>{filter !== 'discover' && <div className="recipe-toolbar"><span><ListFilter size={16} /> Sort by</span>{(['match', 'time', 'urgent'] as const).map((option) => <button className={sort === option ? 'active' : ''} onClick={() => setSort(option)} key={option}>{option === 'urgent' ? 'Use soon' : option[0].toUpperCase() + option.slice(1)}</button>)}</div>}</div>
-    {filter === 'discover' ? <DiscoverRecipes inventory={inventory} accessToken={accessToken} onAddToGrocery={onAddToGrocery} /> : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
+    {filter === 'discover' ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} onAddToGrocery={onAddToGrocery} /> : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
   </section>
 }
 
-function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory: InventoryItem[]; accessToken: string; onAddToGrocery: (items: GroceryItem[]) => void }) {
+function DiscoverRecipes({ inventory, preferences, accessToken, onAddToGrocery }: { inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; onAddToGrocery: (items: GroceryItem[]) => void }) {
   const [recipes, setRecipes] = useState<DiscoverRecipe[]>([])
   const [selected, setSelected] = useState<DiscoverRecipe | null>(null)
   const [details, setDetails] = useState<DiscoverRecipeDetails | null>(null)
@@ -536,12 +558,13 @@ function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory
     const bDays = daysUntilExpiration(b) ?? 9999
     return aDays - bDays
   }).slice(0, 15).map((item) => item.name), [inventory])
+  const preferenceLabels = foodPreferenceSummary(preferences)
 
   async function search() {
     if (!accessToken || !ingredientNames.length) return
     setLoading('search'); setError(''); setSearched(true)
     try {
-      const result = await searchDiscoverRecipes(ingredientNames, accessToken)
+      const result = await searchDiscoverRecipes(ingredientNames, accessToken, preferences)
       setRecipes(result.data || [])
       const used = result.quota?.used
       if (used !== null && used !== undefined) setQuotaUsed((current) => current === null ? used : Math.max(current, used))
@@ -572,7 +595,7 @@ function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory
 
   if (!accessToken) return <div className="discover-empty panel"><Sparkles /><h2>Sign in to discover recipes</h2><p>External discovery is protected so Mise’s shared daily API allowance cannot be drained anonymously.</p></div>
   return <div className="discover-area">
-    {!searched && <div className="discover-hero panel"><div><span className="eyebrow"><Sparkles size={12} /> Spoonacular discovery</span><h2>Find more ways to use your kitchen</h2><p>Mise will search with up to 15 ingredients, prioritizing food that should be used soon. A search happens only when you ask, protecting the free daily allowance.</p><div className="discover-chips">{ingredientNames.slice(0, 10).map((name) => <span key={name}>{name}</span>)}</div></div><button className="primary-button" onClick={() => void search()} disabled={!ingredientNames.length || loading === 'search'}>{loading === 'search' ? <RefreshCw className="spin" /> : <Search />} {loading === 'search' ? 'Searching…' : 'Find recipes'}</button></div>}
+    {!searched && <div className="discover-hero panel"><div><span className="eyebrow"><Sparkles size={12} /> Spoonacular discovery</span><h2>Find more ways to use your kitchen</h2><p>Mise will search with up to 15 ingredients, prioritizing food that should be used soon and applying your saved food preferences. A search happens only when you ask, protecting the free daily allowance.</p>{preferenceLabels.length > 0 && <div className="preference-summary"><ShieldCheck /> Filtered for {preferenceLabels.join(' · ')}</div>}<div className="discover-chips">{ingredientNames.slice(0, 10).map((name) => <span key={name}>{name}</span>)}</div></div><button className="primary-button" onClick={() => void search()} disabled={!ingredientNames.length || loading === 'search'}>{loading === 'search' ? <RefreshCw className="spin" /> : <Search />} {loading === 'search' ? 'Searching…' : 'Find recipes'}</button></div>}
     {searched && <div className="discover-summary"><div><strong>{recipes.length ? `${recipes.length} new ideas` : 'Recipe discovery'}</strong><small>Based on {ingredientNames.length} kitchen ingredients{quotaUsed !== null ? ` · ${quotaUsed} API points used today` : ''}</small></div><button className="secondary-button" onClick={() => void search()} disabled={loading === 'search'}><RefreshCw className={loading === 'search' ? 'spin' : ''} /> Search again</button></div>}
     {error && <div className="discover-error"><TriangleAlert /> <span>{error}</span></div>}
     {loading === 'search' && searched && <div className="discover-loading"><RefreshCw className="spin" /><strong>Looking beyond your saved recipes…</strong></div>}
@@ -605,12 +628,14 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   </section>
 }
 
-function SettingsPage({ session, displayName, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onSignOut }: {
-  session: Session | null; displayName: string; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
-  onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onSignOut: () => Promise<void>
+function SettingsPage({ session, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onSignOut }: {
+  session: Session | null; displayName: string; preferences: FoodPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
+  onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>; onSignOut: () => Promise<void>
 }) {
   const [name, setName] = useState(displayName)
-  const [working, setWorking] = useState<'name' | 'password' | null>(null)
+  const [preferenceDraft, setPreferenceDraft] = useState(preferences)
+  const [excludedDraft, setExcludedDraft] = useState(preferences.excludedIngredients.join(', '))
+  const [working, setWorking] = useState<'name' | 'password' | 'preferences' | null>(null)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const provider = session?.user.app_metadata.provider === 'google' ? 'Google' : 'Email and password'
   const syncCopy: Record<SyncState, string> = {
@@ -636,6 +661,25 @@ function SettingsPage({ session, displayName, syncState, isOnline, inventoryCoun
     finally { setWorking(null) }
   }
 
+  function toggleIntolerance(intolerance: FoodIntolerance) {
+    setPreferenceDraft((current) => ({
+      ...current,
+      intolerances: current.intolerances.includes(intolerance)
+        ? current.intolerances.filter((item) => item !== intolerance)
+        : [...current.intolerances, intolerance],
+    }))
+  }
+
+  async function savePreferences(event: React.FormEvent) {
+    event.preventDefault(); setWorking('preferences'); setMessage(null)
+    const excludedIngredients = [...new Set(excludedDraft.split(',').map((item) => item.trim()).filter(Boolean))].slice(0, 12)
+    try {
+      await onUpdatePreferences({ ...preferenceDraft, excludedIngredients })
+      setMessage({ type: 'success', text: 'Your recipe preferences were saved.' })
+    } catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Preferences could not be saved.' }) }
+    finally { setWorking(null) }
+  }
+
   return <section className="inner-page settings-page">
     <div className="page-title"><div><span className="eyebrow">Your Mise</span><h1>Settings</h1><p>Manage your profile, account security, and kitchen sync.</p></div></div>
     {message && <div className={`settings-message ${message.type}`}>{message.text}</div>}
@@ -648,6 +692,15 @@ function SettingsPage({ session, displayName, syncState, isOnline, inventoryCoun
         <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
         <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
         {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> Retry sync</button>}
+      </article>
+      <article className="settings-card preferences-card panel">
+        <div className="settings-card-head"><span><Leaf /></span><div><h2>Food preferences</h2><p>Personalize recipe discovery around how you eat.</p></div></div>
+        <form onSubmit={savePreferences}>
+          <label>Diet<select value={preferenceDraft.diet} onChange={(event) => setPreferenceDraft((current) => ({ ...current, diet: event.target.value as FoodPreferences['diet'] }))}><option value="">No diet preference</option>{dietPreferences.map((diet) => <option key={diet}>{diet}</option>)}</select></label>
+          <fieldset className="preference-options"><legend>Allergies & intolerances</legend><div>{foodIntolerances.map((intolerance) => <button type="button" key={intolerance} className={preferenceDraft.intolerances.includes(intolerance) ? 'selected' : ''} aria-pressed={preferenceDraft.intolerances.includes(intolerance)} onClick={() => toggleIntolerance(intolerance)}>{preferenceDraft.intolerances.includes(intolerance) && <Check />} {intolerance}</button>)}</div></fieldset>
+          <label>Ingredients to avoid<input value={excludedDraft} onChange={(event) => setExcludedDraft(event.target.value)} placeholder="e.g. mushrooms, cilantro" /><small>Separate multiple ingredients with commas.</small></label>
+          <div className="preference-save"><button className="secondary-button" disabled={working === 'preferences'}>{working === 'preferences' ? 'Saving…' : 'Save food preferences'}</button><p><TriangleAlert /> For severe allergies, always verify the original recipe and product labels. Mise’s saved-recipe warnings are ingredient-name checks, not medical guarantees.</p></div>
+        </form>
       </article>
       <article className="settings-card panel">
         <div className="settings-card-head"><span><ShieldCheck /></span><div><h2>Account & security</h2><p>{session ? `Signed in with ${provider}.` : 'Local demo mode.'}</p></div></div>
@@ -842,7 +895,7 @@ function RecipeSheet({ recipe, inventory, onClose, onAction, onEdit, onDelete }:
   })
   const missingCount = ingredientStatus.filter((ingredient) => ingredient.missing).length
   const match = Math.round(((ingredientStatus.length - missingCount) / ingredientStatus.length) * 100)
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="recipe-sheet" onMouseDown={(e) => e.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close recipe"><X /></button><div className="sheet-art" style={{ '--accent': recipe.accent } as React.CSSProperties}><span>{recipe.emoji}</span><em>{missingCount ? `${match}% match` : 'Everything available'}</em></div><div className="sheet-body">{recipe.source === 'user' && <div className="recipe-owner-actions"><span>My recipe</span><button onClick={onEdit}><Pencil /> Edit</button><button className="delete" onClick={onDelete}><Trash2 /> Delete</button></div>}<span className="eyebrow">Your kitchen match</span><h2>{recipe.name}</h2><p>{recipe.description}</p><div className="sheet-stats"><span><Clock3 /> {recipe.time} min</span><span><Sparkles /> {recipe.protein}g protein</span></div><div className="serving-control"><div><strong>Servings</strong><small>Ingredients update automatically</small></div><div><button onClick={() => setServings((value) => Math.max(1, value - 1))}><Minus /></button><strong>{servings}</strong><button onClick={() => setServings((value) => Math.min(12, value + 1))}><Plus /></button></div></div><h3>From your kitchen</h3><div className="ingredient-list">{ingredientStatus.map((ingredient) => <div className={ingredient.missing ? 'missing' : ''} key={`${ingredient.name}-${ingredient.unit}`}><span>{ingredient.missing ? <Plus /> : <Check />}</span><strong>{ingredient.name}</strong><small>{ingredient.needed} {ingredient.unit}</small></div>)}</div>{recipe.urgent > 0 && <div className="rescue-note"><Leaf /> This meal uses {recipe.urgent} ingredient{recipe.urgent === 1 ? '' : 's'} that should be enjoyed soon.</div>}{Boolean(recipe.instructions?.length) && <div className="recipe-steps"><h3>Method</h3><ol>{recipe.instructions!.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<button className="submit-button" onClick={() => onAction(scale)}>{missingCount ? `Add ${missingCount} missing item${missingCount === 1 ? '' : 's'} to grocery list` : `Cook ${servings} servings & update my kitchen`} <ArrowRight /></button></div></section></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="recipe-sheet" onMouseDown={(e) => e.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close recipe"><X /></button><div className="sheet-art" style={{ '--accent': recipe.accent } as React.CSSProperties}><span>{recipe.emoji}</span><em>{missingCount ? `${match}% match` : 'Everything available'}</em></div><div className="sheet-body">{recipe.source === 'user' && <div className="recipe-owner-actions"><span>My recipe</span><button onClick={onEdit}><Pencil /> Edit</button><button className="delete" onClick={onDelete}><Trash2 /> Delete</button></div>}<span className="eyebrow">Your kitchen match</span><h2>{recipe.name}</h2><p>{recipe.description}</p>{recipe.preferenceWarnings.length > 0 && <div className="preference-warning"><TriangleAlert /><div><strong>Check against your preferences</strong><span>{recipe.preferenceWarnings.join(' · ')}</span></div></div>}<div className="sheet-stats"><span><Clock3 /> {recipe.time} min</span><span><Sparkles /> {recipe.protein}g protein</span></div><div className="serving-control"><div><strong>Servings</strong><small>Ingredients update automatically</small></div><div><button onClick={() => setServings((value) => Math.max(1, value - 1))}><Minus /></button><strong>{servings}</strong><button onClick={() => setServings((value) => Math.min(12, value + 1))}><Plus /></button></div></div><h3>From your kitchen</h3><div className="ingredient-list">{ingredientStatus.map((ingredient) => <div className={ingredient.missing ? 'missing' : ''} key={`${ingredient.name}-${ingredient.unit}`}><span>{ingredient.missing ? <Plus /> : <Check />}</span><strong>{ingredient.name}</strong><small>{ingredient.needed} {ingredient.unit}</small></div>)}</div>{recipe.urgent > 0 && <div className="rescue-note"><Leaf /> This meal uses {recipe.urgent} ingredient{recipe.urgent === 1 ? '' : 's'} that should be enjoyed soon.</div>}{Boolean(recipe.instructions?.length) && <div className="recipe-steps"><h3>Method</h3><ol>{recipe.instructions!.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<button className="submit-button" onClick={() => onAction(scale)}>{missingCount ? `Add ${missingCount} missing item${missingCount === 1 ? '' : 's'} to grocery list` : `Cook ${servings} servings & update my kitchen`} <ArrowRight /></button></div></section></div>
 }
 
 function Empty({ title, copy }: { title: string; copy: string }) { return <div className="empty"><PackageOpen /><strong>{title}</strong><p>{copy}</p></div> }

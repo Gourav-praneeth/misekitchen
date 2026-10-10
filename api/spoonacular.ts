@@ -5,6 +5,8 @@ type CacheEntry = { expiresAt: number; response: unknown; quota: { used: number 
 
 const cache = new Map<string, CacheEntry>()
 const CACHE_MS = 55 * 60 * 1000
+const diets = new Set(['Vegetarian', 'Vegan', 'Pescetarian', 'Ketogenic', 'Paleo', 'Whole30', 'Low FODMAP'])
+const intolerances = new Set(['Dairy', 'Egg', 'Gluten', 'Grain', 'Peanut', 'Seafood', 'Sesame', 'Shellfish', 'Soy', 'Sulfite', 'Tree Nut', 'Wheat'])
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } })
@@ -68,13 +70,28 @@ async function handle(request: Request) {
       .map((value) => value.trim().replace(/[^a-zA-Z0-9 '-]/g, ''))
       .filter(Boolean).slice(0, 15)
     if (!ingredients.length) return json({ error: 'Add ingredients to your kitchen before discovering recipes.' }, 400)
-    const encoded = encodeURIComponent(ingredients.join(','))
-    const { response, quota } = await spoonacular(`/recipes/findByIngredients?ingredients=${encoded}&number=9&ranking=1&ignorePantry=true`, `search:${ingredients.sort().join('|').toLowerCase()}`)
-    const recipes = (Array.isArray(response) ? response : []).map((recipe: Record<string, unknown>) => ({
+    const diet = url.searchParams.get('diet') || ''
+    const selectedDiet = diets.has(diet) ? diet : ''
+    const selectedIntolerances = (url.searchParams.get('intolerances') || '').split(',').map((value) => value.trim()).filter((value) => intolerances.has(value)).slice(0, 12)
+    const excludedIngredients = (url.searchParams.get('excludeIngredients') || '').split(',')
+      .map((value) => value.trim().replace(/[^a-zA-Z0-9 '-]/g, ''))
+      .filter(Boolean).slice(0, 12)
+    const query = new URLSearchParams({
+      includeIngredients: ingredients.join(','), number: '9', sort: 'max-used-ingredients',
+      fillIngredients: 'true', instructionsRequired: 'true', ignorePantry: 'true',
+    })
+    if (selectedDiet) query.set('diet', selectedDiet)
+    if (selectedIntolerances.length) query.set('intolerances', selectedIntolerances.join(','))
+    if (excludedIngredients.length) query.set('excludeIngredients', excludedIngredients.join(','))
+    const preferenceKey = [selectedDiet, selectedIntolerances.sort().join('|'), excludedIngredients.sort().join('|')].join(':').toLowerCase()
+    const { response, quota } = await spoonacular(`/recipes/complexSearch?${query}`, `search:${[...ingredients].sort().join('|').toLowerCase()}:${preferenceKey}`)
+    const result = response && typeof response === 'object' && Array.isArray((response as { results?: unknown[] }).results)
+      ? (response as { results: Array<Record<string, unknown>> }).results : []
+    const recipes = result.map((recipe: Record<string, unknown>) => ({
       id: Number(recipe.id), title: String(recipe.title || 'Untitled recipe'),
       image: safeUrl(recipe.image),
-      usedIngredientCount: Number(recipe.usedIngredientCount || 0),
-      missedIngredientCount: Number(recipe.missedIngredientCount || 0),
+      usedIngredientCount: Number(recipe.usedIngredientCount || (Array.isArray(recipe.usedIngredients) ? recipe.usedIngredients.length : 0)),
+      missedIngredientCount: Number(recipe.missedIngredientCount || (Array.isArray(recipe.missedIngredients) ? recipe.missedIngredients.length : 0)),
       usedIngredients: (Array.isArray(recipe.usedIngredients) ? recipe.usedIngredients : []).map(ingredient),
       missedIngredients: (Array.isArray(recipe.missedIngredients) ? recipe.missedIngredients : []).map(ingredient),
     }))

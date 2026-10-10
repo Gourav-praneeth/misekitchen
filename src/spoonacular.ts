@@ -1,3 +1,5 @@
+import type { FoodPreferences } from './types'
+
 export type DiscoverIngredient = {
   name: string
   amount: number
@@ -37,8 +39,11 @@ async function requestDiscover<T>(path: string, accessToken: string): Promise<Ap
   return payload
 }
 
-export function searchDiscoverRecipes(ingredients: string[], accessToken: string) {
+export function searchDiscoverRecipes(ingredients: string[], accessToken: string, preferences: FoodPreferences) {
   const query = new URLSearchParams({ action: 'search', ingredients: ingredients.join(',') })
+  if (preferences.diet) query.set('diet', preferences.diet)
+  if (preferences.intolerances.length) query.set('intolerances', preferences.intolerances.join(','))
+  if (preferences.excludedIngredients.length) query.set('excludeIngredients', preferences.excludedIngredients.join(','))
   return requestDiscover<DiscoverRecipe[]>(`/api/spoonacular?${query}`, accessToken)
 }
 

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { GroceryItem, InventoryItem, Recipe, RecipeIngredient } from './types'
+import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Recipe, RecipeIngredient } from './types'
 import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -20,6 +20,31 @@ export async function getHouseholdId(userId: string) {
     .maybeSingle()
   if (error) throw error
   return data?.household_id as string | null
+}
+
+export async function loadFoodPreferences(userId: string): Promise<FoodPreferences> {
+  if (!supabase) return { diet: '', intolerances: [], excludedIngredients: [] }
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('diet,intolerances,excluded_ingredients')
+    .eq('id', userId)
+    .single()
+  if (error) throw error
+  return {
+    diet: (data.diet || '') as DietPreference | '',
+    intolerances: (data.intolerances || []) as FoodIntolerance[],
+    excludedIngredients: (data.excluded_ingredients || []) as string[],
+  }
+}
+
+export async function saveFoodPreferences(userId: string, preferences: FoodPreferences) {
+  if (!supabase) return
+  const { error } = await supabase.from('profiles').update({
+    diet: preferences.diet || null,
+    intolerances: preferences.intolerances,
+    excluded_ingredients: preferences.excludedIngredients,
+  }).eq('id', userId)
+  if (error) throw error
 }
 
 export async function loadCloudKitchen(householdId: string) {

@@ -43,7 +43,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 
 ### Spoonacular recipe discovery
 
-The optional Discover tab calls Spoonacular through a protected Vercel Function. Add `SPOONACULAR_API_KEY` as a private Vercel environment variable for Production and Preview, then redeploy. Do not prefix this key with `VITE_`; browser-exposed variables would reveal it. The function verifies the user's Supabase access token, searches only when requested, and caches Spoonacular responses for up to 55 minutes. Local Vite mode shows the Discover interface but requires `vercel dev` to run the `/api` function.
+The optional Discover tab calls Spoonacular through a protected Vercel Function. Add `SPOONACULAR_API_KEY` as a private Vercel environment variable for Production and Preview, then redeploy. Do not prefix this key with `VITE_`; browser-exposed variables would reveal it. The function verifies the user's Supabase access token, applies the user's diet, intolerance, and excluded-ingredient filters, searches only when requested, and caches Spoonacular responses for up to 55 minutes. Local Vite mode shows the Discover interface but requires `vercel dev` to run the `/api` function.
 
 ### Backend behavior
 
@@ -56,6 +56,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Each query is restricted to authenticated household members by Row Level Security.
 - Signed-out users can explicitly continue with a browser-only demo.
 - Signed-in testers can send private, household-scoped feedback. Feedback is insert-only from the app and can be reviewed by project owners in the Supabase table editor.
+- Diet, intolerance, and excluded-ingredient preferences are stored on each user's private profile rather than shared across the household.
 
 ## Included in this MVP
 
@@ -71,6 +72,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Recipe matching against current ingredient quantities
 - Household-scoped My Recipes with create, edit, delete, ingredients, serving data, and cooking instructions
 - Optional Spoonacular Discover search protected by Supabase authentication, short-lived caching, attribution, and graceful quota handling
+- Per-user food preferences that filter Spoonacular discovery and flag obvious conflicts in saved recipes
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
 - Adjustable servings with live ingredient recalculation

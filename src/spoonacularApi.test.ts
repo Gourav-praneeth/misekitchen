@@ -22,13 +22,13 @@ describe('Spoonacular server function', () => {
   it('normalizes recipe search results without exposing the API key', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('{}', { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([{
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [{
         id: 42, title: 'Carrot Soup', image: 'https://img.example/soup.jpg', usedIngredientCount: 1,
         missedIngredientCount: 1, usedIngredients: [{ name: 'carrots', amount: 4, unit: 'whole' }],
         missedIngredients: [{ name: 'stock', amount: 2, unit: 'cups' }],
-      }]), { status: 200, headers: { 'X-API-Quota-Used': '3.2', 'X-API-Quota-Request': '1.09' } }))
+      }] }), { status: 200, headers: { 'X-API-Quota-Used': '3.2', 'X-API-Quota-Request': '1.09' } }))
 
-    const response = await handler.fetch(new Request('https://mise.test/api/spoonacular?action=search&ingredients=carrots-unique-test', {
+    const response = await handler.fetch(new Request('https://mise.test/api/spoonacular?action=search&ingredients=carrots-unique-test&diet=Vegan&intolerances=Dairy%2CEgg&excludeIngredients=mushrooms', {
       headers: { Authorization: 'Bearer valid' },
     }))
     const payload = await response.json()
@@ -36,6 +36,11 @@ describe('Spoonacular server function', () => {
     expect(payload.data[0]).toMatchObject({ id: 42, title: 'Carrot Soup', missedIngredientCount: 1 })
     expect(payload.quota).toEqual({ used: 3.2, request: 1.09 })
     expect(JSON.stringify(payload)).not.toContain('private-key')
-    expect(String(fetchMock.mock.calls[1][0])).toContain('apiKey=private-key')
+    const spoonacularUrl = String(fetchMock.mock.calls[1][0])
+    expect(spoonacularUrl).toContain('/recipes/complexSearch?')
+    expect(spoonacularUrl).toContain('diet=Vegan')
+    expect(spoonacularUrl).toContain('intolerances=Dairy%2CEgg')
+    expect(spoonacularUrl).toContain('excludeIngredients=mushrooms')
+    expect(spoonacularUrl).toContain('apiKey=private-key')
   })
 })

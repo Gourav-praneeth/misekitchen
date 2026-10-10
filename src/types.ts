@@ -34,3 +34,12 @@ export type Recipe = {
 }
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }
+
+export type DietPreference = 'Vegetarian' | 'Vegan' | 'Pescetarian' | 'Ketogenic' | 'Paleo' | 'Whole30' | 'Low FODMAP'
+export type FoodIntolerance = 'Dairy' | 'Egg' | 'Gluten' | 'Grain' | 'Peanut' | 'Seafood' | 'Sesame' | 'Shellfish' | 'Soy' | 'Sulfite' | 'Tree Nut' | 'Wheat'
+
+export type FoodPreferences = {
+  diet: DietPreference | ''
+  intolerances: FoodIntolerance[]
+  excludedIngredients: string[]
+}
