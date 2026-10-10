@@ -468,7 +468,6 @@ function App() {
     || session?.user.email?.split('@')[0]
     || 'Gourav'
   const greetingName = displayName.split(/\s+/)[0]
-  const initials = String(displayName).split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 
   return (
     <div className="app-shell">
@@ -478,7 +477,7 @@ function App() {
           <span>Mise</span>
         </button>
         <nav>
-          <NavButton active={view === 'home'} icon={<Sparkles />} label="Overview" onClick={() => setView('home')} />
+          <NavButton className="overview-nav" active={view === 'home'} icon={<Sparkles />} label="Overview" onClick={() => setView('home')} />
           <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenCategory('All'); setView('kitchen') }} />
           <NavButton active={view === 'recipes'} icon={<CookingPot />} label="What can I make?" badge={readyCount} onClick={() => setView('recipes')} />
           <NavButton active={view === 'planner'} icon={<CalendarDays />} label="Meal plan" badge={mealPlan.length} onClick={() => setView('planner')} />
@@ -490,12 +489,11 @@ function App() {
           <strong>{urgentItems.length} items</strong>
           <p>deserve a spot on your plate soon.</p>
         </div>
-        <div className="profile"><span>{initials}</span><div><strong>{displayName}</strong><small>{session ? 'Cloud kitchen' : 'Local demo'}</small></div>{cloudEnabled && <button onClick={leaveAccount} aria-label={session ? 'Sign out' : 'Leave demo'} title={session ? 'Sign out' : 'Sign in'}><LogOut size={15} /></button>}</div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div className="mobile-brand"><Leaf size={18} /> Mise</div>
+          <button className="mobile-brand" onClick={() => setView('home')} aria-label="Go to overview"><Leaf size={18} /> Mise</button>
           <button className="search-button"><Search size={17} /><span>Search your kitchen</span><kbd>⌘ K</kbd></button>
           {session && (syncState === 'error' || syncState === 'offline'
             ? <button className={`sync-state ${syncState}`} onClick={retrySync} title="Retry cloud sync">{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : 'Retry sync'}</button>
@@ -511,7 +509,7 @@ function App() {
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
-          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onSignOut={leaveAccount} />}
+          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
 
@@ -527,8 +525,8 @@ function App() {
   )
 }
 
-function NavButton({ active, icon, label, badge, onClick }: { active: boolean; icon: React.ReactNode; label: string; badge?: number; onClick: () => void }) {
-  return <button className={active ? 'nav-item active' : 'nav-item'} onClick={onClick} aria-label={label}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
+function NavButton({ active, icon, label, badge, className = '', onClick }: { active: boolean; icon: React.ReactNode; label: string; badge?: number; className?: string; onClick: () => void }) {
+  return <button className={`nav-item${active ? ' active' : ''}${className ? ` ${className}` : ''}`} onClick={onClick} aria-label={label}>{icon}<span>{label}</span>{badge !== undefined && <em>{badge}</em>}</button>
 }
 
 function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
@@ -746,10 +744,10 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   </section>
 }
 
-function SettingsPage({ session, householdId, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onActivateHousehold, onJoinHousehold, onSignOut }: {
+function SettingsPage({ session, householdId, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
   session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
   onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>;
-  onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onSignOut: () => Promise<void>
+  onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
 }) {
   const [name, setName] = useState(displayName)
   const [preferenceDraft, setPreferenceDraft] = useState(preferences)
@@ -895,6 +893,10 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
           <label>Ingredients to avoid<input value={excludedDraft} onChange={(event) => setExcludedDraft(event.target.value)} placeholder="e.g. mushrooms, cilantro" /><small>Separate multiple ingredients with commas.</small></label>
           <div className="preference-save"><button className="secondary-button" disabled={working === 'preferences'}>{working === 'preferences' ? 'Saving…' : 'Save food preferences'}</button><p><TriangleAlert /> For severe allergies, always verify the original recipe and product labels. Mise’s saved-recipe warnings are ingredient-name checks, not medical guarantees.</p></div>
         </form>
+      </article>
+      <article className="settings-card settings-feedback-card panel">
+        <div className="settings-card-head"><span><MessageSquareText /></span><div><h2>Help shape Mise</h2><p>Share an idea, report a problem, or tell us what feels confusing.</p></div></div>
+        <button className="secondary-button" onClick={onOpenFeedback}><Send /> Send feedback</button>
       </article>
       <article className="settings-card panel">
         <div className="settings-card-head"><span><ShieldCheck /></span><div><h2>Account & security</h2><p>{session ? `Signed in with ${provider}.` : 'Local demo mode.'}</p></div></div>
