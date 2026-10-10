@@ -498,7 +498,7 @@ function App() {
           {session && (syncState === 'error' || syncState === 'offline'
             ? <button className={`sync-state ${syncState}`} onClick={retrySync} title="Retry cloud sync">{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : 'Retry sync'}</button>
             : <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : 'Saving…'}</span>)}
-          {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)}><MessageSquareText size={16} /><span>Feedback</span></button>}
+          {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)} aria-label="Open feedback"><MessageSquareText size={16} /><span>Feedback</span></button>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add ingredients</button>
         </header>
