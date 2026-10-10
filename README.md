@@ -77,6 +77,8 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
 - Adjustable servings with live ingredient recalculation
+- Weekly dinner planning with week navigation, recipe replacement, serving controls, use-soon cues, and cloud sync
+- Consolidated meal-plan grocery calculations that subtract kitchen inventory before adding missing items
 - Cooking flow that deducts ingredients from inventory
 - Missing-ingredient flow that builds a grocery list
 - Purchased-items flow back into the kitchen

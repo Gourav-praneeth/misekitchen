@@ -38,6 +38,14 @@ export type Recipe = {
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }
 
+export type MealPlanEntry = {
+  id: string
+  date: string
+  recipeId: string
+  servings: number
+  mealSlot: 'dinner'
+}
+
 export type DietPreference = 'Vegetarian' | 'Vegan' | 'Pescetarian' | 'Ketogenic' | 'Paleo' | 'Whole30' | 'Low FODMAP'
 export type FoodIntolerance = 'Dairy' | 'Egg' | 'Gluten' | 'Grain' | 'Peanut' | 'Seafood' | 'Sesame' | 'Shellfish' | 'Soy' | 'Sulfite' | 'Tree Nut' | 'Wheat'
 

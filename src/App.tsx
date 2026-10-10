@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Bookmark, BookmarkCheck, Camera, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
+  ArrowRight, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot,
   ExternalLink, KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, WifiOff, X,
 } from 'lucide-react'
@@ -11,22 +11,23 @@ import { expirationWarning, suggestedExpirationDate, type FreshnessState } from 
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
+import { addWeeks, groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { scanReceiptImage } from './receiptScanner'
 import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, getHouseholdId, loadCloudKitchen, loadFoodPreferences, markHouseholdInitialized, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
+import { cloudEnabled, getHouseholdId, loadCloudKitchen, loadFoodPreferences, markHouseholdInitialized, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
 import { withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Location, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
 
-type View = 'home' | 'kitchen' | 'recipes' | 'grocery' | 'settings'
+type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; recipes?: Recipe[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -73,6 +74,9 @@ function App() {
   const [foodPreferences, setFoodPreferences] = useState<FoodPreferences>(() => {
     try { return JSON.parse(localStorage.getItem('mise-food-preferences-v1') || '') || emptyFoodPreferences } catch { return emptyFoodPreferences }
   })
+  const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-meal-plan-v1') || '') || [] } catch { return [] }
+  })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -94,6 +98,7 @@ function App() {
   const starterInventory = useRef(inventory)
   const starterGrocery = useRef(grocery)
   const starterRecipes = useRef(customRecipes)
+  const starterMealPlan = useRef(mealPlan)
 
   useEffect(() => {
     if (!supabase) return
@@ -136,6 +141,7 @@ function App() {
             setInventory(localKitchen.inventory.map((item) => withExpirationDate(item)))
             setGrocery(localKitchen.grocery)
             setCustomRecipes(localKitchen.recipes || [])
+            setMealPlan(localKitchen.mealPlan || [])
             setCloudReady(true)
           }
           setSyncState('offline')
@@ -152,17 +158,20 @@ function App() {
           setInventory(pending.inventory.map((item) => withExpirationDate(item)))
           setGrocery(pending.grocery)
           setCustomRecipes(pending.recipes || [])
+          setMealPlan(pending.mealPlan || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
           setInventory(initialInventory)
           setCustomRecipes(starterRecipes.current)
-          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveRecipeSnapshot(id, starterRecipes.current)])
+          setMealPlan(starterMealPlan.current)
+          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveRecipeSnapshot(id, starterRecipes.current), saveMealPlanSnapshot(id, starterMealPlan.current)])
           await markHouseholdInitialized(id)
         } else {
           setInventory(cloud.inventory)
           setGrocery(cloud.grocery)
           setCustomRecipes(cloud.recipes)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, recipes: cloud.recipes, savedAt: new Date().toISOString() })
+          setMealPlan(cloud.mealPlan)
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, recipes: cloud.recipes, mealPlan: cloud.mealPlan, savedAt: new Date().toISOString() })
         }
         setCloudReady(true)
         setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
@@ -187,6 +196,9 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-food-preferences-v1', JSON.stringify(foodPreferences))
   }, [foodPreferences, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-meal-plan-v1', JSON.stringify(mealPlan))
+  }, [mealPlan, session, demoMode])
 
   useEffect(() => {
     if (!session || demoMode) return
@@ -199,13 +211,13 @@ function App() {
 
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
-    const snapshot = { householdId, inventory, grocery, recipes: customRecipes, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, recipes: customRecipes, mealPlan, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
       try {
-        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveRecipeSnapshot(householdId, customRecipes)]))
+        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveRecipeSnapshot(householdId, customRecipes), saveMealPlanSnapshot(householdId, mealPlan)]))
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
         setSyncState('saved')
@@ -215,7 +227,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, customRecipes, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, customRecipes, mealPlan, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -424,6 +436,7 @@ function App() {
           <NavButton active={view === 'home'} icon={<Sparkles />} label="Overview" onClick={() => setView('home')} />
           <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenCategory('All'); setView('kitchen') }} />
           <NavButton active={view === 'recipes'} icon={<CookingPot />} label="What can I make?" badge={readyCount} onClick={() => setView('recipes')} />
+          <NavButton active={view === 'planner'} icon={<CalendarDays />} label="Meal plan" badge={mealPlan.length} onClick={() => setView('planner')} />
           <NavButton active={view === 'grocery'} icon={<ShoppingBasket />} label="Grocery list" badge={grocery.filter((item) => !item.checked).length} onClick={() => setView('grocery')} />
           <NavButton active={view === 'settings'} icon={<SettingsIcon />} label="Settings" onClick={() => setView('settings')} />
         </nav>
@@ -451,6 +464,7 @@ function App() {
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
+          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onSignOut={leaveAccount} />}
         </div>
@@ -550,6 +564,58 @@ function Recipes({ recipes, inventory, preferences, accessToken, savedExternalId
     <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All ideas'], ['mine', 'Saved'], ['ready', 'Ready now'], ['quick', '20 min or less'], ['protein', 'High protein'], ['discover', 'Discover']] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{label}</button>)}</div>{filter !== 'discover' && <div className="recipe-toolbar"><span><ListFilter size={16} /> Sort by</span>{(['match', 'time', 'urgent'] as const).map((option) => <button className={sort === option ? 'active' : ''} onClick={() => setSort(option)} key={option}>{option === 'urgent' ? 'Use soon' : option[0].toUpperCase() + option.slice(1)}</button>)}</div>}</div>
     {filter === 'discover' ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} savedExternalIds={savedExternalIds} onSaveDiscovered={onSaveDiscovered} onAddToGrocery={onAddToGrocery} /> : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
   </section>
+}
+
+function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }: {
+  recipes: RecipeMatch[]; inventory: InventoryItem[]; entries: MealPlanEntry[];
+  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; onAddToGrocery: (items: GroceryItem[]) => void
+}) {
+  const [weekStart, setWeekStart] = useState(() => startOfWeek())
+  const [pickingDate, setPickingDate] = useState<string | null>(null)
+  const dates = useMemo(() => weekDates(weekStart), [weekStart])
+  const dateKeys = dates.map(localDateKey)
+  const weekEntries = entries.filter((entry) => dateKeys.includes(entry.date))
+  const groceries = useMemo(() => groceryForMealPlan(weekEntries, recipes, inventory), [weekEntries, recipes, inventory])
+  const today = localDateKey(new Date())
+  const weekLabel = `${dates[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${dates[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+
+  function chooseRecipe(date: string, recipe: RecipeMatch) {
+    setEntries((current) => [
+      ...current.filter((entry) => !(entry.date === date && entry.mealSlot === 'dinner')),
+      { id: `dinner-${date}`, date, recipeId: recipe.id, servings: recipe.servings, mealSlot: 'dinner' },
+    ])
+    setPickingDate(null)
+  }
+
+  function changeServings(entry: MealPlanEntry, amount: number) {
+    setEntries((current) => current.map((candidate) => candidate.id === entry.id
+      ? { ...candidate, servings: Math.min(24, Math.max(1, candidate.servings + amount)) }
+      : candidate))
+  }
+
+  return <section className="inner-page planner-page">
+    <div className="page-title"><div><span className="eyebrow">Plan with what you have</span><h1>Weekly meal plan</h1><p>Choose dinners for the week, rescue ingredients that need attention, and shop only for what is missing.</p></div>{groceries.length > 0 && <button className="primary-button" onClick={() => onAddToGrocery(groceries)}><ShoppingBasket /> Add {groceries.length} missing item{groceries.length === 1 ? '' : 's'}</button>}</div>
+    <div className="week-toolbar panel"><button onClick={() => setWeekStart((current) => addWeeks(current, -1))} aria-label="Previous week"><ChevronLeft /></button><div><strong>{weekLabel}</strong><small>{weekEntries.length} of 7 dinners planned</small></div><button className="today-button" onClick={() => setWeekStart(startOfWeek())}>This week</button><button onClick={() => setWeekStart((current) => addWeeks(current, 1))} aria-label="Next week"><ChevronRight /></button></div>
+    <div className="week-grid">{dates.map((date) => {
+      const dateKey = localDateKey(date)
+      const entry = entries.find((candidate) => candidate.date === dateKey && candidate.mealSlot === 'dinner')
+      const recipe = entry ? recipes.find((candidate) => candidate.id === entry.recipeId) : undefined
+      return <article className={`day-card panel${dateKey === today ? ' today' : ''}`} key={dateKey}>
+        <div className="day-card-head"><div><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong></div>{dateKey === today && <em>Today</em>}</div>
+        {entry && recipe ? <div className="planned-meal"><div className="planned-meal-art">{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}</div><div className="planned-meal-copy"><small>Dinner</small><h3>{recipe.name}</h3><div>{recipe.urgent > 0 && <span className="use-soon-plan"><Leaf /> Uses {recipe.urgent} soon</span>}<span>{recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}</span></div></div><div className="planned-servings"><span>Servings</span><div><button onClick={() => changeServings(entry, -1)} aria-label={`Decrease servings for ${recipe.name}`}><Minus /></button><strong>{entry.servings}</strong><button onClick={() => changeServings(entry, 1)} aria-label={`Increase servings for ${recipe.name}`}><Plus /></button></div></div><div className="planned-actions"><button onClick={() => setPickingDate(dateKey)}><RefreshCw /> Replace</button><button className="delete" onClick={() => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}><Trash2 /> Remove</button></div></div>
+          : <button className="empty-meal" onClick={() => setPickingDate(dateKey)}><CirclePlus /><strong>Plan dinner</strong><small>Choose from your recipes</small></button>}
+      </article>
+    })}</div>
+    <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} dinner{weekEntries.length === 1 ? '' : 's'} planned</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
+    {pickingDate && <MealPicker date={pickingDate} recipes={recipes} onClose={() => setPickingDate(null)} onChoose={(recipe) => chooseRecipe(pickingDate, recipe)} />}
+  </section>
+}
+
+function MealPicker({ date, recipes, onClose, onChoose }: { date: string; recipes: RecipeMatch[]; onClose: () => void; onChoose: (recipe: RecipeMatch) => void }) {
+  const [query, setQuery] = useState('')
+  const matches = recipes.filter((recipe) => normalize(recipe.name).includes(normalize(query)))
+  const heading = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal meal-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Dinner for {heading}</span><h2>Choose a recipe</h2></div><button onClick={onClose} aria-label="Close meal picker"><X /></button></div><label className="meal-picker-search"><Search /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search recipes…" /></label><div className="meal-picker-list">{matches.map((recipe) => <button key={recipe.id} onClick={() => onChoose(recipe)}><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Ready now'}{recipe.urgent ? ` · uses ${recipe.urgent} soon` : ''}</small></p><ArrowRight /></button>)}</div>{!matches.length && <Empty title="No matching recipes" copy="Try a different recipe name." />}</section></div>
 }
 
 function DiscoverRecipes({ inventory, preferences, accessToken, savedExternalIds, onSaveDiscovered, onAddToGrocery }: { inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
