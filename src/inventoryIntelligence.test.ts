@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
+import { recipes } from './data'
+import { matchRecipes } from './recipeIntelligence'
 import type { InventoryItem } from './types'
 
 const carrots: InventoryItem = {
@@ -41,5 +43,16 @@ describe('duplicate-safe inventory intelligence', () => {
     expect(inventoryItemFromGrocery({ name: 'broccoli', amount: 2, unit: 'item', checked: true }, 'b1')).toMatchObject({
       name: 'Broccoli', emoji: '🥦', quantity: 2, unit: 'head', category: 'Produce', location: 'Fridge', expiresIn: 6,
     })
+  })
+
+  it('gives every default recipe ingredient a specific grocery icon', () => {
+    const groceryItems = matchRecipes(recipes, []).flatMap((recipe) => recipe.missing)
+    const icons = groceryItems.map((item) => ({ name: item.name, icon: groceryEmoji(item) }))
+
+    expect(icons.filter(({ icon }) => icon === '🛒')).toEqual([])
+    expect(icons).toContainEqual({ name: 'Milk', icon: '🥛' })
+    expect(icons).toContainEqual({ name: 'Milled flax seeds', icon: '🌾' })
+    expect(icons).toContainEqual({ name: 'Cooked shredded chicken', icon: '🍗' })
+    expect(icons).toContainEqual({ name: 'Grainy Dijon mustard', icon: '🫙' })
   })
 })
