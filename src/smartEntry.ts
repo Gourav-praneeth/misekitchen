@@ -1,13 +1,5 @@
 import type { Category, InventoryItem, Location } from './types'
-
-type FoodHint = {
-  words: string[]
-  emoji: string
-  category: Category
-  location: Location
-  expiresIn: number | null
-  defaultUnit: string
-}
+import { canonicalFoodName, getFoodIntelligence } from './foodCatalog'
 
 export type SmartEntryConfidence = 'high' | 'medium' | 'low'
 export type SmartEntryItem = InventoryItem & {
@@ -15,41 +7,6 @@ export type SmartEntryItem = InventoryItem & {
   explanation: string
   source: string
 }
-
-const hints: FoodHint[] = [
-  { words: ['chicken', 'turkey'], emoji: '🍗', category: 'Protein', location: 'Fridge', expiresIn: 3, defaultUnit: 'lb' },
-  { words: ['beef', 'steak', 'pork'], emoji: '🥩', category: 'Protein', location: 'Fridge', expiresIn: 3, defaultUnit: 'lb' },
-  { words: ['salmon', 'fish', 'tuna'], emoji: '🐟', category: 'Protein', location: 'Fridge', expiresIn: 2, defaultUnit: 'lb' },
-  { words: ['egg'], emoji: '🥚', category: 'Protein', location: 'Fridge', expiresIn: 21, defaultUnit: 'eggs' },
-  { words: ['spinach', 'lettuce', 'kale', 'greens'], emoji: '🥬', category: 'Produce', location: 'Fridge', expiresIn: 4, defaultUnit: 'bag' },
-  { words: ['broccoli'], emoji: '🥦', category: 'Produce', location: 'Fridge', expiresIn: 6, defaultUnit: 'head' },
-  { words: ['carrot'], emoji: '🥕', category: 'Produce', location: 'Fridge', expiresIn: 14, defaultUnit: 'whole' },
-  { words: ['avocado'], emoji: '🥑', category: 'Produce', location: 'Fridge', expiresIn: 4, defaultUnit: 'whole' },
-  { words: ['tomato'], emoji: '🍅', category: 'Produce', location: 'Fridge', expiresIn: 7, defaultUnit: 'whole' },
-  { words: ['corn'], emoji: '🌽', category: 'Produce', location: 'Freezer', expiresIn: 60, defaultUnit: 'bag' },
-  { words: ['peas'], emoji: '🫛', category: 'Produce', location: 'Freezer', expiresIn: 60, defaultUnit: 'bag' },
-  { words: ['apple'], emoji: '🍎', category: 'Produce', location: 'Fridge', expiresIn: 21, defaultUnit: 'whole' },
-  { words: ['banana'], emoji: '🍌', category: 'Produce', location: 'Pantry', expiresIn: 5, defaultUnit: 'whole' },
-  { words: ['blueberr'], emoji: '🫐', category: 'Produce', location: 'Fridge', expiresIn: 5, defaultUnit: 'box' },
-  { words: ['strawberr'], emoji: '🍓', category: 'Produce', location: 'Fridge', expiresIn: 4, defaultUnit: 'box' },
-  { words: ['lemon', 'lime'], emoji: '🍋', category: 'Produce', location: 'Fridge', expiresIn: 21, defaultUnit: 'whole' },
-  { words: ['orange', 'clementine'], emoji: '🍊', category: 'Produce', location: 'Fridge', expiresIn: 18, defaultUnit: 'whole' },
-  { words: ['onion', 'shallot'], emoji: '🧅', category: 'Produce', location: 'Pantry', expiresIn: 30, defaultUnit: 'whole' },
-  { words: ['garlic'], emoji: '🧄', category: 'Produce', location: 'Pantry', expiresIn: 30, defaultUnit: 'bulb' },
-  { words: ['potato'], emoji: '🥔', category: 'Produce', location: 'Pantry', expiresIn: 21, defaultUnit: 'whole' },
-  { words: ['mushroom'], emoji: '🍄', category: 'Produce', location: 'Fridge', expiresIn: 6, defaultUnit: 'pack' },
-  { words: ['milk'], emoji: '🥛', category: 'Dairy', location: 'Fridge', expiresIn: 7, defaultUnit: 'carton' },
-  { words: ['yogurt'], emoji: '🥛', category: 'Dairy', location: 'Fridge', expiresIn: 10, defaultUnit: 'cups' },
-  { words: ['cheese'], emoji: '🧀', category: 'Dairy', location: 'Fridge', expiresIn: 21, defaultUnit: 'pack' },
-  { words: ['butter'], emoji: '🧈', category: 'Dairy', location: 'Fridge', expiresIn: 60, defaultUnit: 'pack' },
-  { words: ['oat'], emoji: '🥣', category: 'Pantry', location: 'Pantry', expiresIn: 120, defaultUnit: 'cups' },
-  { words: ['rice'], emoji: '🍚', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'cups' },
-  { words: ['quinoa', 'grain'], emoji: '🌾', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'cups' },
-  { words: ['bread'], emoji: '🍞', category: 'Pantry', location: 'Pantry', expiresIn: 6, defaultUnit: 'loaf' },
-  { words: ['pasta', 'noodle'], emoji: '🍝', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'box' },
-  { words: ['bean', 'chickpea', 'lentil'], emoji: '🥫', category: 'Pantry', location: 'Pantry', expiresIn: 180, defaultUnit: 'can' },
-  { words: ['tofu', 'tempeh'], emoji: '🧊', category: 'Protein', location: 'Fridge', expiresIn: 7, defaultUnit: 'pack' },
-]
 
 const numberWords: Record<string, number> = { a: 1, an: 1, half: 0.5, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, dozen: 12 }
 const unitAliases: Record<string, string> = {
@@ -69,11 +26,17 @@ function titleCase(value: string) {
 }
 
 function hintFor(name: string) {
-  const lower = name.toLowerCase()
-  const hint = hints.find((candidate) => candidate.words.some((word) => lower.includes(word)))
+  const intelligence = getFoodIntelligence(name)
   return {
-    recognized: Boolean(hint),
-    hint: hint || { words: [], emoji: '🥫', category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null, defaultUnit: 'item' },
+    recognized: Boolean(intelligence),
+    intelligence,
+    hint: intelligence ? {
+      emoji: intelligence.profile.emoji,
+      category: intelligence.profile.category,
+      location: intelligence.profile.location,
+      expiresIn: intelligence.profile.shelfLifeDays,
+      defaultUnit: intelligence.profile.defaultUnit,
+    } : { emoji: '🥫', category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null, defaultUnit: 'item' },
   }
 }
 
@@ -118,7 +81,7 @@ function daysFromText(value: string) {
 }
 
 export function normalizeFoodName(value: string) {
-  return value.toLowerCase().trim()
+  return canonicalFoodName(value)
     .replace(/\bbaby\s+/g, '')
     .replace(/\bbreasts\b/g, 'breast')
     .replace(/\bberries\b/g, 'berry')
@@ -159,16 +122,19 @@ export function parseSmartEntry(input: string): SmartEntryItem[] {
       .replace(/^(?:of\s+|the\s+)/i, '')
       .trim()
     if (rawUnit?.startsWith('egg') && rawName.toLowerCase() === 's') rawName = 'eggs'
-    const { hint, recognized } = hintFor(rawName)
+    const { hint, recognized, intelligence } = hintFor(rawName)
     const quantity = suffixAmount ? Number(suffixAmount[1]) : parseAmount(rawAmount)
     const unit = rawUnit ? (unitAliases[rawUnit] || rawUnit) : hint.defaultUnit
     const location = locationOverride || hint.location
     const expiresIn = explicitDays ?? (locationOverride === 'Freezer' && hint.expiresIn !== null ? Math.max(60, hint.expiresIn) : hint.expiresIn)
-    const confidence: SmartEntryConfidence = !recognized ? 'low' : rawAmount || suffixAmount ? 'high' : 'medium'
-    const explanation = !recognized ? 'Check category, storage, and icon' : locationOverride ? `${location} storage recognized` : confidence === 'medium' ? 'Quantity and unit were suggested' : 'Food details recognized'
+    const confidence: SmartEntryConfidence = !recognized ? 'low' : intelligence!.score < 0.85 ? 'medium' : rawAmount || suffixAmount ? 'high' : 'medium'
+    const displayName = intelligence ? titleCase(intelligence.profile.name) : titleCase(rawName)
+    const explanation = !recognized ? 'Check category, storage, and icon'
+      : locationOverride ? `${displayName} recognized · ${location} storage`
+        : `${displayName} recognized · ${location} · about ${expiresIn ?? '—'} days`
     return {
       id: `smart-${Date.now()}-${index}`,
-      name: titleCase(rawName),
+      name: displayName,
       emoji: hint.emoji,
       quantity,
       unit,

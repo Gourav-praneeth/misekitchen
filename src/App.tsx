@@ -8,8 +8,9 @@ import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
+import { getFoodIntelligence } from './foodCatalog'
 import { scanReceiptImage } from './receiptScanner'
-import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
+import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, submitFeedback, supabase } from './supabase'
 import { withRetry } from './sync'
@@ -25,7 +26,7 @@ type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery:
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
-const foodIcons = ['🍗', '🥩', '🐟', '🥚', '🥬', '🥦', '🥕', '🥑', '🍅', '🌽', '🫛', '🍎', '🍌', '🫐', '🍓', '🍋', '🍊', '🧅', '🧄', '🥔', '🍄', '🥛', '🧀', '🧈', '🥣', '🍚', '🌾', '🍞', '🍝', '🥫', '🧊', '🧂']
+const foodIcons = ['🍗', '🥩', '🥓', '🐟', '🍤', '🥚', '🥬', '🥦', '🥕', '🥑', '🍅', '🥒', '🫑', '🌽', '🫛', '🍎', '🍌', '🫐', '🍓', '🍇', '🍋', '🍊', '🧅', '🧄', '🥔', '🍠', '🍄', '🌿', '🥛', '🧀', '🧈', '🥣', '🍚', '🌾', '🍞', '🫓', '🍝', '🥫', '🥜', '🫒', '☕', '🧊', '🧂']
 
 function kitchenStorageKey(kind: 'cache' | 'pending', userId: string) {
   return `mise-cloud-${kind}-v1-${userId}`
@@ -47,7 +48,7 @@ function getGreeting() {
 }
 
 function normalize(value: string) {
-  return value.trim().toLowerCase()
+  return normalizeFoodName(value)
 }
 
 function App() {
@@ -689,11 +690,22 @@ function AddFood({ onClose, onAdd, initialItem }: { onClose: () => void; onAdd: 
   const [category, setCategory] = useState<Category>(initialItem?.category || 'Produce')
   const [location, setLocation] = useState<Location>(initialItem?.location || 'Fridge')
   const [expiresOn, setExpiresOn] = useState(initialItem ? (initialItem.expiresOn || expirationDateFromDays(initialItem.expiresIn) || '') : (expirationDateFromDays(7) || ''))
+  const intelligence = useMemo(() => initialItem ? null : getFoodIntelligence(name), [initialItem, name])
+  function applyIntelligence() {
+    if (!intelligence) return
+    const profile = intelligence.profile
+    setName(profile.name)
+    setEmoji(profile.emoji)
+    setUnit(profile.defaultUnit)
+    setCategory(profile.category)
+    setLocation(profile.location)
+    setExpiresOn(expirationDateFromDays(profile.shelfLifeDays) || '')
+  }
   function submit(event: React.FormEvent) {
     event.preventDefault(); if (!name.trim()) return
     onAdd({ id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity, unit, category, location, expiresIn: daysUntilDate(expiresOn), expiresOn: expiresOn || null })
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2></div><button type="button" onClick={onClose} aria-label="Close ingredient form"><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label><fieldset className="icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Quantity<input type="number" min="0.1" step="0.1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></label><label>Unit<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="items" /></label></div><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => setLocation(e.target.value as Location)}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><label>Use-by date<input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} /></label><button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2></div><button type="button" onClick={onClose} aria-label="Close ingredient form"><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label>{intelligence && <div className="food-intelligence-suggestion"><span>{intelligence.profile.emoji}</span><div><strong>Mise recognizes {intelligence.profile.name}</strong><small>{intelligence.profile.category} · {intelligence.profile.location} · about {intelligence.profile.shelfLifeDays ?? '—'} days</small></div><button type="button" onClick={applyIntelligence}>Use suggestions</button></div>}<fieldset className="icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Quantity<input type="number" min="0.1" step="0.1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></label><label>Unit<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="items" /></label></div><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => setLocation(e.target.value as Location)}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><label>Use-by date<input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} /></label><button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
 }
 
 function RecipeSheet({ recipe, inventory, onClose, onAction }: { recipe: RecipeMatch; inventory: InventoryItem[]; onClose: () => void; onAction: (scale: number) => void }) {

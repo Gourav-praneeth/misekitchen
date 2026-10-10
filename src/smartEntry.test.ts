@@ -52,4 +52,16 @@ describe('smart food entry', () => {
     expect(sameFoodAndUnit({ name: 'Chicken breasts', unit: 'pounds' }, { name: 'Chicken breast', unit: 'lb' })).toBe(true)
     expect(sameFoodAndUnit({ name: 'Baby spinach', unit: 'bag' }, { name: 'Spinach', unit: 'bag' })).toBe(true)
   })
+
+  it('normalizes receipt abbreviations into useful food details', () => {
+    const [chicken, milk, yogurt] = parseSmartEntry('2 lb BNLS SKNLS CHKN BRST\nORG MLK\n4 GRK YGT')
+
+    expect(chicken).toMatchObject({ name: 'Chicken Breast', quantity: 2, unit: 'lb', category: 'Protein', location: 'Fridge' })
+    expect(milk).toMatchObject({ name: 'Milk', emoji: '🥛', category: 'Dairy', unit: 'carton' })
+    expect(yogurt).toMatchObject({ name: 'Greek Yogurt', quantity: 4, category: 'Dairy', location: 'Fridge' })
+  })
+
+  it('uses catalog identities when checking duplicates', () => {
+    expect(sameFoodAndUnit({ name: 'GRK YGT', unit: 'cups' }, { name: 'Greek yogurt', unit: 'cup' })).toBe(true)
+  })
 })
