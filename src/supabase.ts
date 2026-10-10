@@ -72,7 +72,8 @@ export async function loadCloudKitchen(householdId: string) {
       id: row.id, name: row.name, description: row.description, time: row.time_minutes,
       servings: row.servings, protein: Number(row.protein_grams), accent: row.accent,
       emoji: row.emoji, ingredients: row.ingredients as RecipeIngredient[],
-      instructions: row.instructions as string[], source: 'user' as const,
+      instructions: row.instructions as string[], source: (row.recipe_source || 'user') as Recipe['source'],
+      externalId: row.external_id, sourceUrl: row.source_url, imageUrl: row.image_url,
     })) as Recipe[],
     initialized: Boolean(householdResult.data.initialized),
   }
@@ -85,6 +86,8 @@ export async function saveRecipeSnapshot(householdId: string, items: Recipe[]) {
     time_minutes: item.time, servings: item.servings, protein_grams: item.protein,
     accent: item.accent, emoji: item.emoji, ingredients: item.ingredients,
     instructions: item.instructions || [],
+    recipe_source: item.source === 'spoonacular' ? 'spoonacular' : 'user',
+    external_id: item.externalId || null, source_url: item.sourceUrl || null, image_url: item.imageUrl || null,
   }))
   if (rows.length) {
     const { error } = await supabase.from('household_recipes').upsert(rows, { onConflict: 'household_id,id' })

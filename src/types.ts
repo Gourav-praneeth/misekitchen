@@ -30,7 +30,10 @@ export type Recipe = {
   emoji: string
   ingredients: RecipeIngredient[]
   instructions?: string[]
-  source?: 'mise' | 'user'
+  source?: 'mise' | 'user' | 'spoonacular'
+  externalId?: number | null
+  sourceUrl?: string | null
+  imageUrl?: string | null
 }
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }

@@ -72,6 +72,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Recipe matching against current ingredient quantities
 - Household-scoped My Recipes with create, edit, delete, ingredients, serving data, and cooking instructions
 - Optional Spoonacular Discover search protected by Supabase authentication, short-lived caching, attribution, and graceful quota handling
+- Save Spoonacular discoveries into the shared recipe library with source attribution, images, kitchen matching, grocery-list actions, and removal controls
 - Per-user food preferences that filter Spoonacular discovery and flag obvious conflicts in saved recipes
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
