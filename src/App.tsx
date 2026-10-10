@@ -283,9 +283,12 @@ function App() {
   }
 
   async function updateProfileName(name: string) {
-    if (!supabase) throw new Error('Profile updates are unavailable.')
-    const { error } = await supabase.auth.updateUser({ data: { display_name: name.trim() } })
+    if (!supabase || !session) throw new Error('Profile updates are unavailable.')
+    const displayName = name.trim()
+    const { error } = await supabase.auth.updateUser({ data: { display_name: displayName } })
     if (error) throw error
+    const { error: profileError } = await supabase.from('profiles').update({ display_name: displayName }).eq('id', session.user.id)
+    if (profileError) throw profileError
     notify('Profile name updated')
   }
 

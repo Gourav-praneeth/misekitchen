@@ -80,6 +80,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Weekly dinner planning with week navigation, recipe replacement, serving controls, use-soon cues, and cloud sync
 - Consolidated meal-plan grocery calculations that subtract kitchen inventory before adding missing items
 - Shared kitchens with expiring invite codes, member visibility, kitchen switching, and owner-managed names
+- Household member names synchronized from Google or email profiles
 - Cooking flow that deducts ingredients from inventory
 - Missing-ingredient flow that builds a grocery list
 - Purchased-items flow back into the kitchen
