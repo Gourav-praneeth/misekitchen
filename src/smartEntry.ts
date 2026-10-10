@@ -1,11 +1,13 @@
 import type { Category, InventoryItem, Location } from './types'
 import { canonicalFoodName, getFoodIntelligence } from './foodCatalog'
+import { expirationDateFromText, expirationWarning, freshnessCueFromText, removeExpirationDateText, removeFreshnessCue, suggestedShelfLifeDays } from './expirationIntelligence'
 
 export type SmartEntryConfidence = 'high' | 'medium' | 'low'
 export type SmartEntryItem = InventoryItem & {
   confidence: SmartEntryConfidence
   explanation: string
   source: string
+  expirationWarning?: string | null
 }
 
 const numberWords: Record<string, number> = { a: 1, an: 1, half: 0.5, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, dozen: 12 }
@@ -70,10 +72,6 @@ function splitEntries(input: string) {
   })
 }
 
-function dateFromText(value: string) {
-  return value.match(/\b(?:use by|best before|expires?)(?:\s+on)?\s+(\d{4}-\d{2}-\d{2})\b/i)?.[1] || null
-}
-
 function daysFromText(value: string) {
   if (/\b(?:use|eat)\s+tomorrow\b/i.test(value)) return 1
   const relative = value.match(/\b(?:use|eat|expires?|best)\s+(?:within|in)\s+(\d+)\s+days?\b/i)
@@ -99,14 +97,14 @@ export function sameFoodAndUnit(left: Pick<InventoryItem, 'name' | 'unit'>, righ
 
 export function parseSmartEntry(input: string): SmartEntryItem[] {
   return splitEntries(input).map((source, index) => {
-    const explicitDate = dateFromText(source)
+    const explicitDate = expirationDateFromText(source)
     const explicitDays = daysFromText(source)
+    const freshnessCue = freshnessCueFromText(source)
     const locationOverride: Location | null = /\b(?:frozen|freezer|keep frozen)\b/i.test(source) ? 'Freezer'
       : /\b(?:pantry|shelf stable)\b/i.test(source) ? 'Pantry'
         : /\bfridge\b/i.test(source) ? 'Fridge' : null
-    let clean = source
+    let clean = removeFreshnessCue(removeExpirationDateText(source))
       .replace(/^(?:i\s+(?:bought|have|got)|add|some)\s+/i, '')
-      .replace(/\b(?:use by|best before|expires?)(?:\s+on)?\s+\d{4}-\d{2}-\d{2}\b/gi, '')
       .replace(/\b(?:use|eat|expires?|best)\s+(?:within|in)\s+\d+\s+days?\b/gi, '')
       .replace(/\b(?:use|eat)\s+tomorrow\b/gi, '')
       .replace(/\b(?:keep\s+frozen|in\s+(?:the\s+)?(?:fridge|freezer|pantry)|shelf\s+stable)\b/gi, '')
@@ -126,12 +124,15 @@ export function parseSmartEntry(input: string): SmartEntryItem[] {
     const quantity = suffixAmount ? Number(suffixAmount[1]) : parseAmount(rawAmount)
     const unit = rawUnit ? (unitAliases[rawUnit] || rawUnit) : hint.defaultUnit
     const location = locationOverride || hint.location
-    const expiresIn = explicitDays ?? (locationOverride === 'Freezer' && hint.expiresIn !== null ? Math.max(60, hint.expiresIn) : hint.expiresIn)
-    const confidence: SmartEntryConfidence = !recognized ? 'low' : intelligence!.score < 0.85 ? 'medium' : rawAmount || suffixAmount ? 'high' : 'medium'
+    const inferredShelfLife = intelligence ? suggestedShelfLifeDays(intelligence.profile, location, freshnessCue.state) : hint.expiresIn
+    const expiresIn = explicitDays ?? (inferredShelfLife === null ? null : Math.max(0, inferredShelfLife - freshnessCue.ageDays))
+    const warning = expirationWarning(explicitDate, intelligence?.profile, location)
+    const confidence: SmartEntryConfidence = !recognized || warning ? 'low' : intelligence!.score < 0.85 ? 'medium' : rawAmount || suffixAmount ? 'high' : 'medium'
     const displayName = intelligence ? titleCase(intelligence.profile.name) : titleCase(rawName)
     const explanation = !recognized ? 'Check category, storage, and icon'
       : locationOverride ? `${displayName} recognized · ${location} storage`
-        : `${displayName} recognized · ${location} · about ${expiresIn ?? '—'} days`
+        : freshnessCue.state === 'opened' ? `${displayName} recognized · opened item estimate`
+          : `${displayName} recognized · ${location} · about ${expiresIn ?? '—'} days`
     return {
       id: `smart-${Date.now()}-${index}`,
       name: displayName,
@@ -145,6 +146,7 @@ export function parseSmartEntry(input: string): SmartEntryItem[] {
       confidence,
       explanation,
       source,
+      expirationWarning: warning,
     }
   }).filter((item) => item.name)
 }

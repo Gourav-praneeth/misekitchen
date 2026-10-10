@@ -60,6 +60,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - Inventory search, filters, quantity controls, add, and remove
 - Smart Entry 2.0 for natural-language notes, multiline receipt text, and on-device receipt-photo OCR, including metric units, storage and freshness cues, and confidence-based review prompts
 - Food Intelligence 2.0 with a private offline catalog, receipt-abbreviation normalization, canonical food names, and category, icon, unit, storage, and shelf-life suggestions across smart and manual entry
+- Expiration Intelligence with purchased/opened freshness states, storage-aware date estimates, printed-date normalization, and implausible-date warnings
 - Stronger duplicate detection across common name/unit variants, quantity merging, and one-click undo
 - Private in-app beta feedback with lightweight screen context
 - Account and sync settings, profile-name updates, password recovery, and an application recovery screen
@@ -74,6 +75,6 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be shared household support, catalog expansion based on tester receipts, reliable expiration-date capture, analytics, and error monitoring.
+The current version is ready for private beta testing. The next production investments should be shared household support, catalog expansion based on tester receipts, recipe intelligence, analytics, and error monitoring.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.

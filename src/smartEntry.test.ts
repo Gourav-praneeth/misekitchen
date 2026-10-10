@@ -64,4 +64,14 @@ describe('smart food entry', () => {
   it('uses catalog identities when checking duplicates', () => {
     expect(sameFoodAndUnit({ name: 'GRK YGT', unit: 'cups' }, { name: 'Greek yogurt', unit: 'cup' })).toBe(true)
   })
+
+  it('uses freshness-state cues and flags implausible printed dates', () => {
+    const [milk, chicken] = parseSmartEntry('milk opened yesterday\nchicken breast use by 12/31/99')
+
+    expect(milk).toMatchObject({ name: 'Milk', expiresIn: 6, expirationWarning: null })
+    expect(milk.explanation).toContain('opened item estimate')
+    expect(chicken.expiresOn).toBe('2099-12-31')
+    expect(chicken.expirationWarning).toContain('two years')
+    expect(chicken.confidence).toBe('low')
+  })
 })
