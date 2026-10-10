@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { GroceryItem, InventoryItem } from './types'
+import type { GroceryItem, InventoryItem, Recipe, RecipeIngredient } from './types'
 import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -23,14 +23,16 @@ export async function getHouseholdId(userId: string) {
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], initialized: false }
-  const [inventoryResult, groceryResult, householdResult] = await Promise.all([
+  if (!supabase) return { inventory: [], grocery: [], recipes: [], initialized: false }
+  const [inventoryResult, groceryResult, recipeResult, householdResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
+    supabase.from('household_recipes').select('*').eq('household_id', householdId).order('name'),
     supabase.from('households').select('initialized').eq('id', householdId).single(),
   ])
   if (inventoryResult.error) throw inventoryResult.error
   if (groceryResult.error) throw groceryResult.error
+  if (recipeResult.error) throw recipeResult.error
   if (householdResult.error) throw householdResult.error
   return {
     inventory: (inventoryResult.data || []).map((row) => ({
@@ -41,7 +43,33 @@ export async function loadCloudKitchen(householdId: string) {
     grocery: (groceryResult.data || []).map((row) => ({
       name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
     })) as GroceryItem[],
+    recipes: (recipeResult.data || []).map((row) => ({
+      id: row.id, name: row.name, description: row.description, time: row.time_minutes,
+      servings: row.servings, protein: Number(row.protein_grams), accent: row.accent,
+      emoji: row.emoji, ingredients: row.ingredients as RecipeIngredient[],
+      instructions: row.instructions as string[], source: 'user' as const,
+    })) as Recipe[],
     initialized: Boolean(householdResult.data.initialized),
+  }
+}
+
+export async function saveRecipeSnapshot(householdId: string, items: Recipe[]) {
+  if (!supabase) return
+  const rows = items.map((item) => ({
+    household_id: householdId, id: item.id, name: item.name, description: item.description,
+    time_minutes: item.time, servings: item.servings, protein_grams: item.protein,
+    accent: item.accent, emoji: item.emoji, ingredients: item.ingredients,
+    instructions: item.instructions || [],
+  }))
+  if (rows.length) {
+    const { error } = await supabase.from('household_recipes').upsert(rows, { onConflict: 'household_id,id' })
+    if (error) throw error
+    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
+    const { error: deleteError } = await supabase.from('household_recipes').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
+    if (deleteError) throw deleteError
+  } else {
+    const { error } = await supabase.from('household_recipes').delete().eq('household_id', householdId)
+    if (error) throw error
   }
 }
 

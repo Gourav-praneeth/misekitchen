@@ -29,6 +29,8 @@ export type Recipe = {
   accent: string
   emoji: string
   ingredients: RecipeIngredient[]
+  instructions?: string[]
+  source?: 'mise' | 'user'
 }
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }

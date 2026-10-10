@@ -45,7 +45,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 
 - New accounts automatically receive a private household.
 - The first sign-in imports the user's existing local demo kitchen into the cloud.
-- Inventory and grocery changes are saved after a short debounce.
+- Inventory, grocery, and household recipe changes are saved after a short debounce.
 - Signed-in kitchens keep an account-scoped browser cache and a pending-change snapshot so temporary connection loss does not discard edits.
 - Failed cloud saves retry automatically, remain available for manual retry, and resume when the browser reconnects.
 - Ingredient freshness is stored as a calendar use-by date, with legacy `expires_in` values migrated automatically.
@@ -65,6 +65,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - Private in-app beta feedback with lightweight screen context
 - Account and sync settings, profile-name updates, password recovery, and an application recovery screen
 - Recipe matching against current ingredient quantities
+- Household-scoped My Recipes with create, edit, delete, ingredients, serving data, and cooking instructions
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
 - Adjustable servings with live ingredient recalculation
@@ -75,6 +76,6 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be shared household support, catalog expansion based on tester receipts, recipe intelligence, analytics, and error monitoring.
+The current version is ready for private beta testing. The next production investments should be shared household support, catalog expansion based on tester receipts, optional external recipe discovery, analytics, and error monitoring.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.
