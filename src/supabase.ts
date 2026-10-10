@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
+import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
 import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -10,16 +10,57 @@ export const supabase = cloudEnabled ? createClient(supabaseUrl, supabaseKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 }) : null
 
-export async function getHouseholdId(userId: string) {
+export async function getHouseholdId() {
   if (!supabase) return null
-  const { data, error } = await supabase
-    .from('household_members')
-    .select('household_id')
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle()
+  const { data, error } = await supabase.rpc('get_active_household_id')
   if (error) throw error
-  return data?.household_id as string | null
+  return data as string | null
+}
+
+export async function loadHouseholds(): Promise<HouseholdSummary[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('list_my_households')
+  if (error) throw error
+  return (data || []).map((row: Record<string, unknown>) => ({
+    id: String(row.id), name: String(row.name), role: row.member_role as HouseholdSummary['role'], memberCount: Number(row.member_count),
+  }))
+}
+
+export async function loadHouseholdMembers(householdId: string): Promise<HouseholdMember[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('list_household_members', { target_household_id: householdId })
+  if (error) throw error
+  return (data || []).map((row: Record<string, unknown>) => ({
+    userId: String(row.user_id), displayName: String(row.display_name), role: row.member_role as HouseholdMember['role'], joinedAt: String(row.joined_at),
+  }))
+}
+
+export async function createHouseholdInvite(householdId: string) {
+  if (!supabase) throw new Error('Cloud kitchens are not enabled.')
+  const { data, error } = await supabase.rpc('create_household_invite', { target_household_id: householdId })
+  if (error) throw error
+  const invite = data?.[0]
+  if (!invite) throw new Error('Invite code could not be created.')
+  return { code: String(invite.invite_code), expiresAt: String(invite.expires_at) }
+}
+
+export async function joinHousehold(inviteCode: string) {
+  if (!supabase) throw new Error('Cloud kitchens are not enabled.')
+  const { data, error } = await supabase.rpc('join_household_by_code', { invite_code: inviteCode })
+  if (error) throw error
+  return data as string
+}
+
+export async function setActiveHousehold(householdId: string) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('set_active_household', { target_household_id: householdId })
+  if (error) throw error
+}
+
+export async function renameHousehold(householdId: string, name: string) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('rename_household', { target_household_id: householdId, next_name: name })
+  if (error) throw error
 }
 
 export async function loadFoodPreferences(userId: string): Promise<FoodPreferences> {

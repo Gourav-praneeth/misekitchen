@@ -79,6 +79,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Adjustable servings with live ingredient recalculation
 - Weekly dinner planning with week navigation, recipe replacement, serving controls, use-soon cues, and cloud sync
 - Consolidated meal-plan grocery calculations that subtract kitchen inventory before adding missing items
+- Shared kitchens with expiring invite codes, member visibility, kitchen switching, and owner-managed names
 - Cooking flow that deducts ingredients from inventory
 - Missing-ingredient flow that builds a grocery list
 - Purchased-items flow back into the kitchen
@@ -86,6 +87,6 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be shared household support, catalog expansion based on tester receipts, optional external recipe discovery, analytics, and error monitoring.
+The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts, richer meal-planning controls, and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.

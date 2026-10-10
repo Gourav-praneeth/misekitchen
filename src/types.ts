@@ -46,6 +46,20 @@ export type MealPlanEntry = {
   mealSlot: 'dinner'
 }
 
+export type HouseholdSummary = {
+  id: string
+  name: string
+  role: 'owner' | 'member'
+  memberCount: number
+}
+
+export type HouseholdMember = {
+  userId: string
+  displayName: string
+  role: 'owner' | 'member'
+  joinedAt: string
+}
+
 export type DietPreference = 'Vegetarian' | 'Vegan' | 'Pescetarian' | 'Ketogenic' | 'Paleo' | 'Whole30' | 'Low FODMAP'
 export type FoodIntolerance = 'Dairy' | 'Egg' | 'Gluten' | 'Grain' | 'Peanut' | 'Seafood' | 'Sesame' | 'Shellfish' | 'Soy' | 'Sulfite' | 'Tree Nut' | 'Wheat'
 

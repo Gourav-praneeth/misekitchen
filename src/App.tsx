@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot,
-  ExternalLink, KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
-  Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, WifiOff, X,
+  ArrowRight, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
+  ExternalLink, House, KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
+  Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserPlus, UserRound, UsersRound, WifiOff, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
@@ -10,6 +10,7 @@ import { recipes, seedInventory } from './data'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
+import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
@@ -18,9 +19,9 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, getHouseholdId, loadCloudKitchen, loadFoodPreferences, markHouseholdInitialized, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
+import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadCloudKitchen, loadFoodPreferences, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, renameHousehold, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, setActiveHousehold, submitFeedback, supabase } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
@@ -149,7 +150,7 @@ function App() {
           return
         }
         setSyncState('syncing')
-        const id = await getHouseholdId(session!.user.id)
+        const id = await getHouseholdId()
         if (!id) throw new Error('No kitchen was created for this account.')
         const cloud = await loadCloudKitchen(id)
         if (!active) return
@@ -292,6 +293,38 @@ function App() {
     if (session) await saveFoodPreferences(session.user.id, preferences)
     setFoodPreferences(preferences)
     notify('Food preferences saved')
+  }
+
+  async function activateHousehold(nextHouseholdId: string) {
+    if (!session || !householdId || nextHouseholdId === householdId) return
+    if (syncState !== 'saved') throw new Error('Wait for your current kitchen to finish saving, then try again.')
+    const previousHouseholdId = householdId
+    setCloudReady(false)
+    setHouseholdId(null)
+    try {
+      await setActiveHousehold(nextHouseholdId)
+      setLoadRetryToken((value) => value + 1)
+    } catch (error) {
+      setHouseholdId(previousHouseholdId)
+      setCloudReady(true)
+      throw error
+    }
+  }
+
+  async function joinSharedHousehold(code: string) {
+    if (!session || !householdId) throw new Error('Sign in before joining a shared kitchen.')
+    if (syncState !== 'saved') throw new Error('Wait for your current kitchen to finish saving, then try again.')
+    const previousHouseholdId = householdId
+    setCloudReady(false)
+    setHouseholdId(null)
+    try {
+      await joinHousehold(code)
+      setLoadRetryToken((value) => value + 1)
+    } catch (error) {
+      setHouseholdId(previousHouseholdId)
+      setCloudReady(true)
+      throw error
+    }
   }
 
   function addSmartItems(items: SmartReviewItem[]) {
@@ -471,7 +504,7 @@ function App() {
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
-          {view === 'settings' && <SettingsPage session={session} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onSignOut={leaveAccount} />}
+          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onSignOut={leaveAccount} />}
         </div>
       </main>
 
@@ -706,22 +739,43 @@ function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: Groce
   </section>
 }
 
-function SettingsPage({ session, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onSignOut }: {
-  session: Session | null; displayName: string; preferences: FoodPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
-  onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>; onSignOut: () => Promise<void>
+function SettingsPage({ session, householdId, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onActivateHousehold, onJoinHousehold, onSignOut }: {
+  session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
+  onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>;
+  onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onSignOut: () => Promise<void>
 }) {
   const [name, setName] = useState(displayName)
   const [preferenceDraft, setPreferenceDraft] = useState(preferences)
   const [excludedDraft, setExcludedDraft] = useState(preferences.excludedIngredients.join(', '))
-  const [working, setWorking] = useState<'name' | 'password' | 'preferences' | null>(null)
+  const [households, setHouseholds] = useState<HouseholdSummary[]>([])
+  const [members, setMembers] = useState<HouseholdMember[]>([])
+  const [kitchenName, setKitchenName] = useState('')
+  const [joinCode, setJoinCode] = useState('')
+  const [invite, setInvite] = useState<{ code: string; expiresAt: string } | null>(null)
+  const [working, setWorking] = useState<'name' | 'password' | 'preferences' | 'household' | 'invite' | 'join' | 'switch' | null>(null)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const provider = session?.user.app_metadata.provider === 'google' ? 'Google' : 'Email and password'
+  const activeHousehold = households.find((household) => household.id === householdId)
   const syncCopy: Record<SyncState, string> = {
     saved: 'Everything is safely stored in your cloud kitchen.',
     syncing: 'Your latest changes are being saved now.',
     error: 'Your changes are safe on this device and waiting to sync.',
     offline: 'You can keep working. Changes will sync when you reconnect.',
   }
+
+  useEffect(() => {
+    if (!session || !householdId) return
+    let active = true
+    Promise.all([loadHouseholds(), loadHouseholdMembers(householdId)])
+      .then(([nextHouseholds, nextMembers]) => {
+        if (!active) return
+        setHouseholds(nextHouseholds)
+        setMembers(nextMembers)
+        setKitchenName(nextHouseholds.find((household) => household.id === householdId)?.name || '')
+      })
+      .catch((error) => { if (active) setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Shared kitchen details could not be loaded.' }) })
+    return () => { active = false }
+  }, [session, householdId])
 
   async function saveName(event: React.FormEvent) {
     event.preventDefault()
@@ -758,6 +812,47 @@ function SettingsPage({ session, displayName, preferences, syncState, isOnline, 
     finally { setWorking(null) }
   }
 
+  async function saveKitchenName(event: React.FormEvent) {
+    event.preventDefault()
+    if (!householdId || !kitchenName.trim() || kitchenName.trim() === activeHousehold?.name) return
+    setWorking('household'); setMessage(null)
+    try {
+      await renameHousehold(householdId, kitchenName)
+      setHouseholds((current) => current.map((household) => household.id === householdId ? { ...household, name: kitchenName.trim() } : household))
+      setMessage({ type: 'success', text: 'Kitchen name updated.' })
+    } catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Kitchen name could not be updated.' }) }
+    finally { setWorking(null) }
+  }
+
+  async function makeInvite() {
+    if (!householdId) return
+    setWorking('invite'); setMessage(null)
+    try { setInvite(await createHouseholdInvite(householdId)) }
+    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Invite code could not be created.' }) }
+    finally { setWorking(null) }
+  }
+
+  async function copyInvite() {
+    if (!invite) return
+    try { await navigator.clipboard.writeText(invite.code); setMessage({ type: 'success', text: 'Invite code copied.' }) }
+    catch { setMessage({ type: 'error', text: 'Copying failed. Select the code and copy it manually.' }) }
+  }
+
+  async function switchKitchen(nextHouseholdId: string) {
+    if (!nextHouseholdId || nextHouseholdId === householdId) return
+    setWorking('switch'); setMessage(null)
+    try { await onActivateHousehold(nextHouseholdId) }
+    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Kitchen could not be opened.' }); setWorking(null) }
+  }
+
+  async function joinKitchen(event: React.FormEvent) {
+    event.preventDefault()
+    if (!joinCode.trim()) return
+    setWorking('join'); setMessage(null)
+    try { await onJoinHousehold(joinCode) }
+    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Kitchen could not be joined.' }); setWorking(null) }
+  }
+
   return <section className="inner-page settings-page">
     <div className="page-title"><div><span className="eyebrow">Your Mise</span><h1>Settings</h1><p>Manage your profile, account security, and kitchen sync.</p></div></div>
     {message && <div className={`settings-message ${message.type}`}>{message.text}</div>}
@@ -770,6 +865,20 @@ function SettingsPage({ session, displayName, preferences, syncState, isOnline, 
         <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
         <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
         {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> Retry sync</button>}
+      </article>
+      <article className="settings-card shared-kitchen-card panel">
+        <div className="settings-card-head"><span><UsersRound /></span><div><h2>Shared kitchen</h2><p>Plan, shop, and manage ingredients with the people you live with.</p></div></div>
+        {session && householdId ? <div className="shared-kitchen-layout">
+          <div className="shared-kitchen-main">
+            {households.length > 1 && <label>Active kitchen<select value={householdId} disabled={working === 'switch' || syncState !== 'saved'} onChange={(event) => switchKitchen(event.target.value)}>{households.map((household) => <option value={household.id} key={household.id}>{household.name} · {household.memberCount} member{household.memberCount === 1 ? '' : 's'}</option>)}</select></label>}
+            {activeHousehold?.role === 'owner' ? <form className="kitchen-name-form" onSubmit={saveKitchenName}><label>Kitchen name<input value={kitchenName} maxLength={40} onChange={(event) => setKitchenName(event.target.value)} /></label><button className="secondary-button" disabled={working === 'household' || kitchenName.trim() === activeHousehold.name}>{working === 'household' ? 'Saving…' : 'Rename kitchen'}</button></form> : <div className="active-kitchen-name"><House /><div><strong>{activeHousehold?.name || 'Shared kitchen'}</strong><small>You joined as a member.</small></div></div>}
+            <div className="household-members"><span>Members</span>{members.map((member) => <div key={member.userId}><em>{member.displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</em><p><strong>{member.displayName}</strong><small>{member.role === 'owner' ? 'Kitchen owner' : 'Member'}</small></p></div>)}</div>
+          </div>
+          <div className="shared-kitchen-actions">
+            {activeHousehold?.role === 'owner' && <section><UserPlus /><h3>Invite someone</h3><p>Create a private code they can enter in their Mise settings. Codes expire after seven days.</p>{invite ? <div className="invite-code"><strong>{invite.code}</strong><button onClick={copyInvite} aria-label="Copy invite code"><Copy /></button><small>Expires {new Date(invite.expiresAt).toLocaleDateString()}</small></div> : <button className="secondary-button" onClick={makeInvite} disabled={working === 'invite'}>{working === 'invite' ? 'Creating…' : 'Create invite code'}</button>}</section>}
+            <form onSubmit={joinKitchen}><House /><h3>Join another kitchen</h3><p>Your personal kitchen stays available, and you can switch back at any time.</p><label>Invite code<input value={joinCode} maxLength={10} autoCapitalize="characters" onChange={(event) => setJoinCode(normalizeInviteCode(event.target.value))} placeholder="10-character code" /></label><button className="secondary-button" disabled={working === 'join' || !inviteCodeIsValid(joinCode) || syncState !== 'saved'}>{working === 'join' ? 'Joining…' : 'Join kitchen'}</button></form>
+          </div>
+        </div> : <p className="settings-copy">Sign in to invite household members and share a kitchen.</p>}
       </article>
       <article className="settings-card preferences-card panel">
         <div className="settings-card-head"><span><Leaf /></span><div><h2>Food preferences</h2><p>Personalize recipe discovery around how you eat.</p></div></div>
