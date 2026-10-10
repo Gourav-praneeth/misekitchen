@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Mise</title>
+  <desc id="desc">A dark green leaf on a soft green tile.</desc>
+  <rect width="1024" height="1024" fill="#f5f2ea"/>
+  <rect x="192" y="192" width="640" height="640" rx="208" fill="#dbe8d6"/>
+  <g fill="none" stroke="#294638" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M474.7 727.3c145.6-25.8 243.1-148 243.1-290.9 0-70.4-20.2-136.7-39.5-191.6-4.7-13.3-21.6-17.3-31.1-6.8-64.4 71.1-141.1 85.6-228 101.7-114.9 21.3-167.6 105.8-147.2 205.2 19.1 93.2 94.9 153.9 202.7 182.4Z"/>
+    <path d="M235 759c16.7-75.5 57.4-125.5 124.1-157 77.2-36.5 119.4-43.3 190.9-104"/>
+  </g>
+</svg>
