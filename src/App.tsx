@@ -543,7 +543,8 @@ function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory
     try {
       const result = await searchDiscoverRecipes(ingredientNames, accessToken)
       setRecipes(result.data || [])
-      if (result.quota?.used !== null && result.quota?.used !== undefined) setQuotaUsed(result.quota.used)
+      const used = result.quota?.used
+      if (used !== null && used !== undefined) setQuotaUsed((current) => current === null ? used : Math.max(current, used))
     } catch (searchError) {
       setRecipes([])
       setError(searchError instanceof Error ? searchError.message : 'Recipe discovery failed.')
@@ -555,7 +556,8 @@ function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory
     try {
       const result = await loadDiscoverRecipe(recipe.id, accessToken)
       setDetails(result.data || null)
-      if (result.quota?.used !== null && result.quota?.used !== undefined) setQuotaUsed(result.quota.used)
+      const used = result.quota?.used
+      if (used !== null && used !== undefined) setQuotaUsed((current) => current === null ? used : Math.max(current, used))
     } catch (detailError) {
       setSelected(null)
       setError(detailError instanceof Error ? detailError.message : 'Recipe details could not be loaded.')
