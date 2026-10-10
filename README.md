@@ -41,6 +41,10 @@ The sign-in screen includes Google OAuth. To activate it, create a Web OAuth cli
 
 The publishable key is intentionally used by the browser. Authorization is enforced with PostgreSQL grants and Row Level Security. Never expose a Supabase secret or service-role key through a `VITE_` variable.
 
+### Spoonacular recipe discovery
+
+The optional Discover tab calls Spoonacular through a protected Vercel Function. Add `SPOONACULAR_API_KEY` as a private Vercel environment variable for Production and Preview, then redeploy. Do not prefix this key with `VITE_`; browser-exposed variables would reveal it. The function verifies the user's Supabase access token, searches only when requested, and caches Spoonacular responses for up to 55 minutes. Local Vite mode shows the Discover interface but requires `vercel dev` to run the `/api` function.
+
 ### Backend behavior
 
 - New accounts automatically receive a private household.
@@ -66,6 +70,7 @@ The publishable key is intentionally used by the browser. Authorization is enfor
 - Account and sync settings, profile-name updates, password recovery, and an application recovery screen
 - Recipe matching against current ingredient quantities
 - Household-scoped My Recipes with create, edit, delete, ingredients, serving data, and cooking instructions
+- Optional Spoonacular Discover search protected by Supabase authentication, short-lived caching, attribution, and graceful quota handling
 - Prioritization of recipes that rescue expiring food
 - Recipe filters for ready-now, quick, and high-protein meals
 - Adjustable servings with live ingredient recalculation

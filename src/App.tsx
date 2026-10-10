@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight, Camera, Check, ChefHat, CirclePlus, Clock3, Cloud, CookingPot,
-  KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
+  ExternalLink, KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserRound, WifiOff, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
@@ -12,6 +12,7 @@ import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirat
 import { getFoodIntelligence } from './foodCatalog'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { scanReceiptImage } from './receiptScanner'
+import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, markHouseholdInitialized, saveGrocerySnapshot, saveInventorySnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
@@ -420,7 +421,7 @@ function App() {
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} accessToken={session?.access_token || ''} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onAddToGrocery={addToGrocery} />}
           {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} displayName={displayName} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onSignOut={leaveAccount} />}
         </div>
@@ -510,17 +511,78 @@ function Freshness({ item }: { item: InventoryItem }) {
   return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
-function Recipes({ recipes, setSelectedRecipe, onAdd }: { recipes: RecipeMatch[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void }) {
+function Recipes({ recipes, inventory, accessToken, setSelectedRecipe, onAdd, onAddToGrocery }: { recipes: RecipeMatch[]; inventory: InventoryItem[]; accessToken: string; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
   const [sort, setSort] = useState<'match' | 'time' | 'urgent'>('match')
-  const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'quick' | 'protein'>('all')
+  const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'quick' | 'protein' | 'discover'>('all')
   const filtered = recipes.filter((recipe) => filter === 'mine' ? recipe.source === 'user' : filter === 'ready' ? recipe.missing.length === 0 : filter === 'quick' ? recipe.time <= 20 : filter === 'protein' ? recipe.protein >= 35 : true)
   const sorted = [...filtered].sort((a, b) => sort === 'time' ? a.time - b.time : sort === 'urgent' ? b.urgent - a.urgent : b.score - a.score)
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Cook from what you have</span><h1>What can I make?</h1><p>Your recipes and Mise ideas are ranked by what is already in your kitchen.</p></div><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add my recipe</button></div>
-    <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All ideas'], ['mine', 'My recipes'], ['ready', 'Ready now'], ['quick', '20 min or less'], ['protein', 'High protein']] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{label}</button>)}</div><div className="recipe-toolbar"><span><ListFilter size={16} /> Sort by</span>{(['match', 'time', 'urgent'] as const).map((option) => <button className={sort === option ? 'active' : ''} onClick={() => setSort(option)} key={option}>{option === 'urgent' ? 'Use soon' : option[0].toUpperCase() + option.slice(1)}</button>)}</div></div>
-    <div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>
-    {!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}
+    <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All ideas'], ['mine', 'My recipes'], ['ready', 'Ready now'], ['quick', '20 min or less'], ['protein', 'High protein'], ['discover', 'Discover']] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{label}</button>)}</div>{filter !== 'discover' && <div className="recipe-toolbar"><span><ListFilter size={16} /> Sort by</span>{(['match', 'time', 'urgent'] as const).map((option) => <button className={sort === option ? 'active' : ''} onClick={() => setSort(option)} key={option}>{option === 'urgent' ? 'Use soon' : option[0].toUpperCase() + option.slice(1)}</button>)}</div>}</div>
+    {filter === 'discover' ? <DiscoverRecipes inventory={inventory} accessToken={accessToken} onAddToGrocery={onAddToGrocery} /> : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
   </section>
+}
+
+function DiscoverRecipes({ inventory, accessToken, onAddToGrocery }: { inventory: InventoryItem[]; accessToken: string; onAddToGrocery: (items: GroceryItem[]) => void }) {
+  const [recipes, setRecipes] = useState<DiscoverRecipe[]>([])
+  const [selected, setSelected] = useState<DiscoverRecipe | null>(null)
+  const [details, setDetails] = useState<DiscoverRecipeDetails | null>(null)
+  const [loading, setLoading] = useState<'search' | 'details' | null>(null)
+  const [error, setError] = useState('')
+  const [searched, setSearched] = useState(false)
+  const [quotaUsed, setQuotaUsed] = useState<number | null>(null)
+  const ingredientNames = useMemo(() => [...inventory].sort((a, b) => {
+    const aDays = daysUntilExpiration(a) ?? 9999
+    const bDays = daysUntilExpiration(b) ?? 9999
+    return aDays - bDays
+  }).slice(0, 15).map((item) => item.name), [inventory])
+
+  async function search() {
+    if (!accessToken || !ingredientNames.length) return
+    setLoading('search'); setError(''); setSearched(true)
+    try {
+      const result = await searchDiscoverRecipes(ingredientNames, accessToken)
+      setRecipes(result.data || [])
+      if (result.quota?.used !== null && result.quota?.used !== undefined) setQuotaUsed(result.quota.used)
+    } catch (searchError) {
+      setRecipes([])
+      setError(searchError instanceof Error ? searchError.message : 'Recipe discovery failed.')
+    } finally { setLoading(null) }
+  }
+
+  async function openRecipe(recipe: DiscoverRecipe) {
+    setSelected(recipe); setDetails(null); setLoading('details'); setError('')
+    try {
+      const result = await loadDiscoverRecipe(recipe.id, accessToken)
+      setDetails(result.data || null)
+      if (result.quota?.used !== null && result.quota?.used !== undefined) setQuotaUsed(result.quota.used)
+    } catch (detailError) {
+      setSelected(null)
+      setError(detailError instanceof Error ? detailError.message : 'Recipe details could not be loaded.')
+    } finally { setLoading(null) }
+  }
+
+  function addMissing() {
+    if (!selected?.missedIngredients.length) return
+    onAddToGrocery(selected.missedIngredients.map((item) => ({ name: item.name, amount: item.amount || 1, unit: item.unit || 'item', checked: false })))
+    setSelected(null); setDetails(null)
+  }
+
+  if (!accessToken) return <div className="discover-empty panel"><Sparkles /><h2>Sign in to discover recipes</h2><p>External discovery is protected so Mise’s shared daily API allowance cannot be drained anonymously.</p></div>
+  return <div className="discover-area">
+    {!searched && <div className="discover-hero panel"><div><span className="eyebrow"><Sparkles size={12} /> Spoonacular discovery</span><h2>Find more ways to use your kitchen</h2><p>Mise will search with up to 15 ingredients, prioritizing food that should be used soon. A search happens only when you ask, protecting the free daily allowance.</p><div className="discover-chips">{ingredientNames.slice(0, 10).map((name) => <span key={name}>{name}</span>)}</div></div><button className="primary-button" onClick={() => void search()} disabled={!ingredientNames.length || loading === 'search'}>{loading === 'search' ? <RefreshCw className="spin" /> : <Search />} {loading === 'search' ? 'Searching…' : 'Find recipes'}</button></div>}
+    {searched && <div className="discover-summary"><div><strong>{recipes.length ? `${recipes.length} new ideas` : 'Recipe discovery'}</strong><small>Based on {ingredientNames.length} kitchen ingredients{quotaUsed !== null ? ` · ${quotaUsed} API points used today` : ''}</small></div><button className="secondary-button" onClick={() => void search()} disabled={loading === 'search'}><RefreshCw className={loading === 'search' ? 'spin' : ''} /> Search again</button></div>}
+    {error && <div className="discover-error"><TriangleAlert /> <span>{error}</span></div>}
+    {loading === 'search' && searched && <div className="discover-loading"><RefreshCw className="spin" /><strong>Looking beyond your saved recipes…</strong></div>}
+    {!loading && searched && !error && !recipes.length && <Empty title="No external matches found" copy="Your Mise recipes are still available. Try again after adding more ingredients." />}
+    <div className="discover-grid">{recipes.map((recipe) => <button className="discover-card" key={recipe.id} onClick={() => void openRecipe(recipe)}><div className="discover-image">{recipe.image ? <img src={recipe.image} alt="" /> : <span>🍽️</span>}<em>{recipe.usedIngredientCount} ingredients matched</em></div><div><h3>{recipe.title}</h3><p>{recipe.missedIngredientCount ? `Missing ${recipe.missedIngredientCount} ingredient${recipe.missedIngredientCount === 1 ? '' : 's'}` : 'Ready from your kitchen'}</p><strong>View recipe <ArrowRight /></strong></div></button>)}</div>
+    <p className="spoonacular-credit">Recipe discovery powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p>
+    {selected && <ExternalRecipeSheet preview={selected} details={details} loading={loading === 'details'} onClose={() => { setSelected(null); setDetails(null) }} onAddMissing={addMissing} />}
+  </div>
+}
+
+function ExternalRecipeSheet({ preview, details, loading, onClose, onAddMissing }: { preview: DiscoverRecipe; details: DiscoverRecipeDetails | null; loading: boolean; onClose: () => void; onAddMissing: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="external-recipe-sheet" onMouseDown={(event) => event.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close discovered recipe"><X /></button><div className="external-recipe-image">{preview.image ? <img src={preview.image} alt="" /> : <span>🍽️</span>}<em>Discovered for your kitchen</em></div><div className="external-recipe-body"><span className="eyebrow">Spoonacular recipe</span><h2>{preview.title}</h2>{loading && <div className="discover-loading compact"><RefreshCw className="spin" /> Loading recipe details…</div>}{details && <><div className="sheet-stats"><span><Clock3 /> {details.readyInMinutes || '—'} min</span><span><ChefHat /> {details.servings} servings</span></div><h3>Ingredients</h3><div className="external-ingredients">{details.ingredients.map((item, index) => <div key={`${item.name}-${index}`}><span>{preview.missedIngredients.some((missing) => normalize(missing.name) === normalize(item.name)) ? <Plus /> : <Check />}</span><p><strong>{item.name}</strong><small>{item.original || `${item.amount} ${item.unit}`}</small></p></div>)}</div>{details.instructions.length > 0 && <div className="recipe-steps"><h3>Method</h3><ol>{details.instructions.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<div className="external-actions">{preview.missedIngredientCount > 0 && <button className="submit-button" onClick={onAddMissing}>Add {preview.missedIngredientCount} missing item{preview.missedIngredientCount === 1 ? '' : 's'} <ShoppingBasket /></button>}{details.sourceUrl && <a className="secondary-button" href={details.sourceUrl} target="_blank" rel="noreferrer">View full original recipe <ExternalLink /></a>}</div><p className="spoonacular-credit">Powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p></>}</div></section></div>
 }
 
 function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: GroceryItem[]; setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void }) {
