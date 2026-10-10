@@ -19,6 +19,8 @@ const unitAliases: Record<string, string> = {
   bottle: 'bottle', bottles: 'bottles', can: 'can', cans: 'cans', jar: 'jar', jars: 'jars', pack: 'pack', packs: 'packs',
   package: 'pack', packages: 'packs', bunch: 'bunch', bunches: 'bunches', head: 'head', heads: 'heads', bulb: 'bulb', bulbs: 'bulbs',
   loaf: 'loaf', loaves: 'loaves', egg: 'eggs', eggs: 'eggs', item: 'item', items: 'items', piece: 'piece', pieces: 'pieces',
+  teaspoon: 'tsp', teaspoons: 'tsp', tsp: 'tsp', tablespoon: 'tbsp', tablespoons: 'tbsp', tbsp: 'tbsp',
+  pinch: 'pinch', pinches: 'pinches', clove: 'clove', cloves: 'cloves', stalk: 'stalk', stalks: 'stalks', sprig: 'sprig', sprigs: 'sprigs',
 }
 const numberPattern = '(?:\\d+\\s+\\d+\\/\\d+|\\d+\\/\\d+|\\d+(?:\\.\\d+)?|\\b(?:a|an|half|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen)\\b)'
 const unitPattern = Object.keys(unitAliases).sort((a, b) => b.length - a.length).join('|')
