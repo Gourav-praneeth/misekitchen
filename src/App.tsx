@@ -11,6 +11,7 @@ import { expirationWarning, suggestedExpirationDate, type FreshnessState } from 
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
+import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
@@ -354,16 +355,10 @@ function App() {
           expiresIn: reviewItem.expiresIn,
           expiresOn: reviewItem.expiresOn,
         }
-        const existing = reviewItem.merge ? next.find((entry) => sameFoodAndUnit(entry, item)) : undefined
-        if (existing) {
-          existing.quantity = Number((existing.quantity + item.quantity).toFixed(2))
-          const existingDate = existing.expiresOn || expirationDateFromDays(existing.expiresIn)
-          const itemDate = item.expiresOn || expirationDateFromDays(item.expiresIn)
-          if (itemDate && (!existingDate || itemDate < existingDate)) {
-            existing.expiresOn = itemDate
-            existing.expiresIn = daysUntilDate(itemDate)
-          }
-          merged += 1
+        if (reviewItem.merge) {
+          const result = mergeInventoryItems(next, [item])
+          next.splice(0, next.length, ...result.items)
+          merged += result.merged
         } else {
           next.push({ ...withExpirationDate(item), id: `${normalize(item.name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}-${next.length}` })
         }
@@ -402,15 +397,7 @@ function App() {
   }
 
   function addToGrocery(items: GroceryItem[]) {
-    setGrocery((current) => {
-      const next = [...current]
-      items.forEach((item) => {
-        const existing = next.find((entry) => normalize(entry.name) === normalize(item.name))
-        if (existing) existing.amount = Math.max(existing.amount, item.amount)
-        else next.push({ ...item, checked: false })
-      })
-      return next
-    })
+    setGrocery((current) => mergeGroceryItems(current, items.map((item) => ({ ...item, checked: false }))))
     notify(`${items.length} item${items.length === 1 ? '' : 's'} added to your grocery list`)
   }
 
@@ -510,12 +497,12 @@ function App() {
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
-          {view === 'grocery' && <Grocery grocery={grocery} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
+          {view === 'grocery' && <Grocery grocery={grocery} inventory={inventory} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
 
-      {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { setInventory((current) => [...current, item]); setAddOpen(false); notify(`${item.name} added to your kitchen`) }} />}
+      {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} merged with your existing ingredient` : `${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onAdd={addSmartItems} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
@@ -741,21 +728,26 @@ function ExternalRecipeSheet({ preview, details, loading, isSaved, onClose, onSa
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="external-recipe-sheet" onMouseDown={(event) => event.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close discovered recipe"><X /></button><div className="external-recipe-image">{preview.image ? <img src={preview.image} alt="" /> : <span>🍽️</span>}<em>Discovered for your kitchen</em></div><div className="external-recipe-body"><span className="eyebrow">Spoonacular recipe</span><h2>{preview.title}</h2>{loading && <div className="discover-loading compact"><RefreshCw className="spin" /> Loading recipe details…</div>}{details && <><div className="sheet-stats"><span><Clock3 /> {details.readyInMinutes || '—'} min</span><span><ChefHat /> {details.servings} servings</span></div><h3>Ingredients</h3><div className="external-ingredients">{details.ingredients.map((item, index) => <div key={`${item.name}-${index}`}><span>{preview.missedIngredients.some((missing) => normalize(missing.name) === normalize(item.name)) ? <Plus /> : <Check />}</span><p><strong>{item.name}</strong><small>{item.original || `${item.amount} ${item.unit}`}</small></p></div>)}</div>{details.instructions.length > 0 && <div className="recipe-steps"><h3>Method</h3><ol>{details.instructions.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<div className="external-actions"><button className="save-recipe-button" onClick={onSave} disabled={isSaved}>{isSaved ? <BookmarkCheck /> : <Bookmark />} {isSaved ? 'Saved to your recipes' : 'Save recipe'}</button>{preview.missedIngredientCount > 0 && <button className="submit-button" onClick={onAddMissing}>Add {preview.missedIngredientCount} missing item{preview.missedIngredientCount === 1 ? '' : 's'} <ShoppingBasket /></button>}{details.sourceUrl && <a className="secondary-button" href={details.sourceUrl} target="_blank" rel="noreferrer">View full original recipe <ExternalLink /></a>}</div><p className="spoonacular-credit">Powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p></>}</div></section></div>
 }
 
-function Grocery({ grocery, setGrocery, setInventory, notify }: { grocery: GroceryItem[]; setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void }) {
+function Grocery({ grocery, inventory, setGrocery, setInventory, notify }: { grocery: GroceryItem[]; inventory: InventoryItem[]; setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void }) {
   const [draft, setDraft] = useState('')
   function addManual() {
-    if (!draft.trim()) return
-    setGrocery((items) => [...items, { name: draft.trim(), amount: 1, unit: 'item', checked: false }]); setDraft('')
+    const item = groceryItemFromText(draft)
+    if (!item) return
+    setGrocery((items) => mergeGroceryItems(items, [item])); setDraft('')
   }
   function moveCheckedToKitchen() {
     const bought = grocery.filter((item) => item.checked)
     if (!bought.length) return
-    setInventory((items) => [...items, ...bought.map((item) => ({ id: `${normalize(item.name).replace(/\s/g, '-')}-${Date.now()}`, name: item.name, emoji: '🥫', quantity: item.amount, unit: item.unit, category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null, expiresOn: null }))])
-    setGrocery((items) => items.filter((item) => !item.checked)); notify(`${bought.length} purchased item${bought.length === 1 ? '' : 's'} moved to your kitchen`)
+    const incoming = bought.map((item, index) => inventoryItemFromGrocery(item, `${normalize(item.name).replace(/\s/g, '-')}-${Date.now()}-${index}`))
+    const result = mergeInventoryItems(inventory, incoming)
+    setInventory(result.items)
+    setGrocery((items) => items.filter((item) => !item.checked))
+    const summary = [result.added ? `${result.added} added` : '', result.merged ? `${result.merged} merged` : ''].filter(Boolean).join(', ')
+    notify(`${summary} in your kitchen`)
   }
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Only what you need</span><h1>Grocery list</h1><p>Missing recipe ingredients land here. When you buy them, send them straight to your kitchen.</p></div>{grocery.some((item) => item.checked) && <button className="primary-button" onClick={moveCheckedToKitchen}><PackageOpen size={18} /> Add purchased to kitchen</button>}</div>
-    <div className="grocery-layout"><div className="grocery-list panel"><div className="quick-add"><input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManual()} placeholder="Add something you need…" /><button onClick={addManual}><Plus /></button></div>{grocery.map((item, index) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))}>{item.checked && <Check />}</button><p><strong>{item.name}</strong><small>{item.amount} {item.unit}</small></p><button className="icon-button" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))}><X /></button></div>)}{!grocery.length && <Empty title="Your list is clear" copy="Choose an almost-ready recipe or add an item above." />}</div><aside className="grocery-tip"><ShoppingBasket /><h3>Shop lighter</h3><p>Mise only adds what your recipes need and your kitchen doesn’t already have.</p><span>That means fewer duplicates and less food forgotten at the back of the fridge.</span></aside></div>
+    <div className="grocery-layout"><div className="grocery-list panel"><div className="quick-add"><input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManual()} placeholder="Try “2 bags spinach”…" /><button onClick={addManual}><Plus /></button></div>{grocery.map((item, index) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{item.amount} {item.unit}</small></p><button className="icon-button" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))}><X /></button></div>)}{!grocery.length && <Empty title="Your list is clear" copy="Choose an almost-ready recipe or add an item above." />}</div><aside className="grocery-tip"><ShoppingBasket /><h3>Shop lighter</h3><p>Mise only adds what your recipes need and your kitchen doesn’t already have.</p><span>That means fewer duplicates and less food forgotten at the back of the fridge.</span></aside></div>
   </section>
 }
 
