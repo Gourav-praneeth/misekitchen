@@ -1,6 +1,7 @@
 import { daysUntilExpiration } from './freshness'
 import { normalizeFoodName } from './smartEntry'
 import { preferenceWarnings } from './foodPreferences'
+import { availableAmount } from './measurements'
 import type { FoodPreferences, GroceryItem, InventoryItem, Recipe } from './types'
 
 export type RecipeMatch = Recipe & {
@@ -11,19 +12,16 @@ export type RecipeMatch = Recipe & {
   preferenceWarnings: string[]
 }
 
-const normalizeUnit = (unit: string) => unit.trim().toLowerCase().replace(/s$/, '')
-
 export function matchRecipes(recipeList: Recipe[], inventory: InventoryItem[], preferences?: FoodPreferences): RecipeMatch[] {
   return recipeList.map((recipe) => {
     const statuses = recipe.ingredients.map((ingredient) => {
-      const item = inventory.find((entry) => normalizeFoodName(entry.name) === normalizeFoodName(ingredient.name))
-      const compatibleUnit = item && normalizeUnit(item.unit) === normalizeUnit(ingredient.unit)
-      const have = compatibleUnit ? item.quantity : 0
-      return { ingredient, item, have, enough: have >= ingredient.amount }
+      const matchingItems = inventory.filter((entry) => normalizeFoodName(entry.name) === normalizeFoodName(ingredient.name))
+      const have = availableAmount(matchingItems, ingredient, normalizeFoodName)
+      return { ingredient, item: matchingItems[0], have, enough: have + 0.0005 >= ingredient.amount }
     })
     const missing = statuses.flatMap(({ ingredient, have, enough }) => enough ? [] : [{
       ...ingredient,
-      amount: Number(Math.max(ingredient.amount - have, 0).toFixed(2)),
+      amount: Number(Math.max(ingredient.amount - have, 0).toFixed(1)),
       checked: false,
     }])
     const urgent = statuses.filter(({ item, have }) => {

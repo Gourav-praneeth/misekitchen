@@ -2,6 +2,7 @@ import { expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
 import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { GroceryItem, InventoryItem } from './types'
+import { convertAmount } from './measurements'
 
 const genericUnits = new Set(['item', 'items'])
 
@@ -39,7 +40,7 @@ export function mergeInventoryItems(current: InventoryItem[], incoming: Inventor
     const withSoonerDate = earlierExpiration(existing, prepared)
     items[existingIndex] = {
       ...withSoonerDate,
-      quantity: Number((existing.quantity + prepared.quantity).toFixed(2)),
+      quantity: Number((existing.quantity + (convertAmount(prepared.quantity, prepared.unit, existing.unit) || 0)).toFixed(3)),
     }
     merged += 1
   })
@@ -66,7 +67,7 @@ export function mergeGroceryItems(current: GroceryItem[], incoming: GroceryItem[
       { name: prepared.name, unit: prepared.unit },
     ))
     if (existing) {
-      existing.amount = Math.max(existing.amount, prepared.amount)
+      existing.amount = Math.max(existing.amount, convertAmount(prepared.amount, prepared.unit, existing.unit) || 0)
       existing.checked = existing.checked && prepared.checked
     } else {
       items.push(prepared)

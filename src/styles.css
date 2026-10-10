@@ -130,3 +130,23 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 @media (max-width: 700px) { .settings-grid { grid-template-columns: 1fr; }.settings-card:last-child { grid-column: auto; }.settings-stats { grid-template-columns: 1fr; }.settings-feedback-card { align-items: stretch; flex-direction: column; }.settings-feedback-card .secondary-button { width: 100%; }.planner-page .page-title .primary-button { width: 100%; }.week-toolbar { padding: 9px; }.week-toolbar strong { font-size: 15px; }.week-grid { grid-template-columns: repeat(7, minmax(220px, 82vw)); scroll-snap-type: x mandatory; }.day-card { min-height: 300px; scroll-snap-align: start; }.planner-summary { align-items: stretch; flex-direction: column; }.planner-summary .secondary-button { width: 100%; }.meal-picker { padding: 22px 18px; }.meal-picker-list { max-height: 55vh; } }
 @media (max-width: 700px) { .shared-kitchen-card, .preferences-card { grid-column: auto; }.shared-kitchen-layout { grid-template-columns: 1fr; }.kitchen-name-form { grid-template-columns: 1fr; }.kitchen-name-form .secondary-button, .shared-kitchen-actions .secondary-button { width: 100%; } }
 @media (max-width: 700px) { .inventory-table { overflow: visible; border: 0; background: transparent; box-shadow: none; }.table-head { display: none; }.inventory-row { min-width: 0; min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px 8px; margin-bottom: 10px; padding: 14px; border: 1px solid #dddfd7; border-radius: 14px; background: var(--paper); box-shadow: 0 5px 18px rgba(37,53,44,.035); }.ingredient-cell.edit-trigger { grid-column: 1 / 3; min-width: 0; }.ingredient-cell p { min-width: 0; }.ingredient-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.quantity-control { grid-column: 3; justify-content: flex-end; }.location-pill { grid-column: 1; grid-row: 2; margin-left: 0; }.freshness { grid-column: 2; grid-row: 2; align-self: center; justify-self: start; }.row-actions { grid-column: 3; grid-row: 2; justify-content: flex-end; padding: 0; border: 0; }.row-actions .icon-button { width: 32px; height: 30px; border: 1px solid #e1e3dc; background: #f7f6f1; opacity: 1; } }
+
+/* Shared-kitchen management */
+.member-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.member-actions select { width: auto; min-width: 86px; padding: 6px 25px 6px 8px; font-size: 8px; }
+.member-actions .icon-button { flex: 0 0 auto; }
+.invite-code .revoke-invite { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; margin-top: 5px; padding: 7px; border: 1px solid #e4c7bd; border-radius: 7px; background: #f8eae5; color: #9f5039; font-size: 8px; font-weight: 800; cursor: pointer; }
+.invite-code .revoke-invite svg { width: 11px; }
+.household-activity { grid-column: 1 / -1; padding-top: 17px; border-top: 1px solid #e0e3db; }
+.household-activity > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.household-activity > div > span { color: #6a776e; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.household-activity > div > button { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border: 0; background: transparent; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
+.household-activity > div > button svg { width: 11px; }
+.household-activity ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.household-activity li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px; border: 1px solid #e2e4dd; border-radius: 10px; background: #faf9f5; }
+.household-activity li > em { display: grid; flex: 0 0 auto; place-items: center; width: 29px; height: 29px; border-radius: 50%; background: #e4ede2; color: var(--green); font-size: 8px; font-style: normal; font-weight: 800; }
+.household-activity li p { min-width: 0; margin: 0; color: #607067; font-size: 9px; }
+.household-activity li strong { color: #263d30; }
+.household-activity li small { display: block; margin-top: 3px; color: #909990; font-size: 7px; }
+.household-activity > p { margin: 10px 0 0; color: #859087; font-size: 9px; }
+@media (max-width: 700px) { .member-actions select { min-width: 78px; }.household-activity ol { grid-template-columns: 1fr; } }

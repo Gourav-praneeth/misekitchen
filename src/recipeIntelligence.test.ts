@@ -26,4 +26,11 @@ describe('matchRecipes', () => {
     expect(match.available).toBe(0)
     expect(match.missing[0].amount).toBe(1)
   })
+
+  it('matches compatible kitchen units automatically', () => {
+    const metricInventory = [{ ...inventory[1], quantity: 1000, unit: 'ml' }]
+    const [match] = matchRecipes([{ ...recipe, ingredients: [{ name: 'Milk', amount: 0.5, unit: 'cups' }] }], metricInventory)
+    expect(match.available).toBe(100)
+    expect(match.missing).toEqual([])
+  })
 })

@@ -29,4 +29,11 @@ describe('weekly meal planning', () => {
       { name: 'Tortillas', amount: 12, unit: 'whole', checked: false },
     ])
   })
+
+  it('subtracts inventory stored in a compatible measurement unit', () => {
+    const milkRecipe: Recipe = { ...recipe, id: 'oats', ingredients: [{ name: 'Milk', amount: 0.5, unit: 'cups' }] }
+    const entries: MealPlanEntry[] = [{ id: 'oats', date: '2026-10-05', recipeId: 'oats', servings: 2, mealSlot: 'dinner' }]
+    const metricMilk: InventoryItem[] = [{ id: 'milk', name: 'Milk', emoji: '🥛', quantity: 100, unit: 'ml', category: 'Dairy', location: 'Fridge', expiresIn: 4 }]
+    expect(groceryForMealPlan(entries, [milkRecipe], metricMilk)).toEqual([{ name: 'Milk', amount: 0.1, unit: 'cups', checked: false }])
+  })
 })

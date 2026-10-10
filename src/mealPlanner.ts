@@ -1,5 +1,6 @@
 import { normalizeFoodName } from './smartEntry'
 import type { GroceryItem, InventoryItem, MealPlanEntry, Recipe } from './types'
+import { availableAmount, convertAmount } from './measurements'
 
 export function localDateKey(date: Date) {
   const year = date.getFullYear()
@@ -29,28 +30,23 @@ export function addWeeks(date: Date, amount: number) {
   return next
 }
 
-const unitKey = (unit: string) => unit.trim().toLowerCase().replace(/s$/, '')
-
 export function groceryForMealPlan(entries: MealPlanEntry[], recipes: Recipe[], inventory: InventoryItem[]): GroceryItem[] {
-  const needs = new Map<string, { name: string; unit: string; amount: number }>()
+  const needs: Array<{ name: string; unit: string; amount: number }> = []
   entries.forEach((entry) => {
     const recipe = recipes.find((candidate) => candidate.id === entry.recipeId)
     if (!recipe) return
     const scale = entry.servings / recipe.servings
     recipe.ingredients.forEach((ingredient) => {
-      const key = `${normalizeFoodName(ingredient.name)}|${unitKey(ingredient.unit)}`
-      const current = needs.get(key)
       const amount = ingredient.amount * scale
-      needs.set(key, { name: current?.name || ingredient.name, unit: current?.unit || ingredient.unit, amount: (current?.amount || 0) + amount })
+      const current = needs.find((need) => normalizeFoodName(need.name) === normalizeFoodName(ingredient.name) && convertAmount(amount, ingredient.unit, need.unit) !== null)
+      if (current) current.amount += convertAmount(amount, ingredient.unit, current.unit) || 0
+      else needs.push({ name: ingredient.name, unit: ingredient.unit, amount })
     })
   })
 
-  return [...needs.entries()].flatMap(([key, needed]) => {
-    const [name, unit] = key.split('|')
-    const available = inventory
-      .filter((item) => normalizeFoodName(item.name) === name && unitKey(item.unit) === unit)
-      .reduce((total, item) => total + item.quantity, 0)
-    const amount = Number(Math.max(needed.amount - available, 0).toFixed(2))
+  return needs.flatMap((needed) => {
+    const available = availableAmount(inventory, needed, normalizeFoodName)
+    const amount = Number(Math.max(needed.amount - available, 0).toFixed(1))
     return amount > 0 ? [{ name: needed.name, unit: needed.unit, amount, checked: false }] : []
   })
 }

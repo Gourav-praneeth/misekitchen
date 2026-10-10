@@ -60,6 +60,24 @@ export type HouseholdMember = {
   joinedAt: string
 }
 
+export type HouseholdInvite = {
+  code: string
+  expiresAt: string
+  useCount: number
+  maxUses: number
+}
+
+export type HouseholdActivity = {
+  id: string
+  actorUserId: string | null
+  actorName: string
+  action: string
+  entityType: string
+  entityId: string | null
+  description: string
+  createdAt: string
+}
+
 export type DietPreference = 'Vegetarian' | 'Vegan' | 'Pescetarian' | 'Ketogenic' | 'Paleo' | 'Whole30' | 'Low FODMAP'
 export type FoodIntolerance = 'Dairy' | 'Egg' | 'Gluten' | 'Grain' | 'Peanut' | 'Seafood' | 'Sesame' | 'Shellfish' | 'Soy' | 'Sulfite' | 'Tree Nut' | 'Wheat'
 

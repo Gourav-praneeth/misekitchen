@@ -22,7 +22,7 @@ type FoodRow = [name: string, aliases: string, emoji: string, category: Category
 // This catalog intentionally contains generic foods rather than brands. It runs entirely
 // in the browser, so suggestions stay fast, private, and available offline.
 const rows: FoodRow[] = [
-  ['Chicken breast', 'chicken breasts|chicken brst|chkn brst|boneless chicken breast|boneless skinless chicken breast|bnls sknls chkn brst', '🍗', 'Protein', 'Fridge', 3, 'lb'],
+  ['Chicken breast', 'chicken breasts|chicken brst|chkn brst|boneless chicken breast|boneless skinless chicken breast|bnls sknls chkn brst|cooked shredded chicken|shredded chicken|rotisserie chicken', '🍗', 'Protein', 'Fridge', 3, 'lb'],
   ['Chicken thighs', 'chicken thigh|chkn thighs|boneless chicken thighs', '🍗', 'Protein', 'Fridge', 3, 'lb'],
   ['Ground turkey', 'turkey mince|ground trky', '🍗', 'Protein', 'Fridge', 2, 'lb'],
   ['Ground beef', 'beef mince|ground bf|hamburger meat', '🥩', 'Protein', 'Fridge', 2, 'lb'],

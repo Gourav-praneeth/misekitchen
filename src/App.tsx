@@ -14,6 +14,7 @@ import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
+import { availableAmount, deductIngredients, formatAmount } from './measurements'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
 import { mergeRecipeIngredients, parseRecipeIngredients } from './recipeIngredients'
@@ -22,16 +23,16 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadCloudKitchen, loadFoodPreferences, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, renameHousehold, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, setActiveHousehold, submitFeedback, supabase } from './supabase'
+import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -84,6 +85,9 @@ function App() {
   })
   const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-meal-plan-v1') || '') || [] } catch { return [] }
+  })
+  const [hiddenMiseRecipeIds, setHiddenMiseRecipeIds] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-hidden-recipes-v1') || '') || [] } catch { return [] }
   })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
@@ -151,6 +155,7 @@ function App() {
             setGrocery(localKitchen.grocery)
             setCustomRecipes(localKitchen.recipes || [])
             setMealPlan(localKitchen.mealPlan || [])
+            setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
             setCloudReady(true)
           }
           setSyncState('offline')
@@ -168,11 +173,13 @@ function App() {
           setGrocery(pending.grocery)
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
+          setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
           setInventory(initialInventory)
           setCustomRecipes(starterRecipes.current)
           setMealPlan(starterMealPlan.current)
+          setHiddenMiseRecipeIds([])
           await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveRecipeSnapshot(id, starterRecipes.current), saveMealPlanSnapshot(id, starterMealPlan.current)])
           await markHouseholdInitialized(id)
         } else {
@@ -180,7 +187,8 @@ function App() {
           setGrocery(cloud.grocery)
           setCustomRecipes(cloud.recipes)
           setMealPlan(cloud.mealPlan)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, recipes: cloud.recipes, mealPlan: cloud.mealPlan, savedAt: new Date().toISOString() })
+          setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, recipes: cloud.recipes, mealPlan: cloud.mealPlan, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
         setCloudReady(true)
         setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
@@ -208,6 +216,9 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-meal-plan-v1', JSON.stringify(mealPlan))
   }, [mealPlan, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-hidden-recipes-v1', JSON.stringify(hiddenMiseRecipeIds))
+  }, [hiddenMiseRecipeIds, session, demoMode])
 
   useEffect(() => {
     if (!session || demoMode) return
@@ -221,7 +232,7 @@ function App() {
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
     const reservation = saveQueue.current.reserve()
-    const snapshot = { householdId, inventory, grocery, recipes: customRecipes, mealPlan, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, recipes: customRecipes, mealPlan, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
@@ -240,7 +251,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, customRecipes, mealPlan, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, customRecipes, mealPlan, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -255,8 +266,8 @@ function App() {
   }, [toast])
 
   const recipeMatches = useMemo<RecipeMatch[]>(
-    () => matchRecipes([...customRecipes, ...recipes], inventory, foodPreferences),
-    [customRecipes, inventory, foodPreferences],
+    () => matchRecipes([...customRecipes, ...recipes.filter((recipe) => !hiddenMiseRecipeIds.includes(recipe.id))], inventory, foodPreferences),
+    [customRecipes, hiddenMiseRecipeIds, inventory, foodPreferences],
   )
 
   const urgentItems = [...inventory].filter((item) => {
@@ -404,16 +415,11 @@ function App() {
   function cookRecipe(recipe: RecipeMatch, scale = 1) {
     const missing = recipe.ingredients.flatMap((ingredient) => {
       const needed = Number((ingredient.amount * scale).toFixed(2))
-      const current = inventory.find((item) => normalize(item.name) === normalize(ingredient.name))?.quantity || 0
+      const current = availableAmount(inventory, ingredient, normalize)
       return current < needed ? [{ ...ingredient, amount: Number((needed - current).toFixed(2)), checked: false }] : []
     })
     if (missing.length) { addToGrocery(missing); setSelectedRecipe(null); return }
-    setInventory((current) => current.flatMap((item) => {
-      const needed = recipe.ingredients.find((ingredient) => normalize(ingredient.name) === normalize(item.name))
-      if (!needed) return [item]
-      const quantity = Math.max(0, Number((item.quantity - needed.amount * scale).toFixed(2)))
-      return quantity === 0 ? [] : [{ ...item, quantity }]
-    }))
+    setInventory((current) => deductIngredients(current, recipe.ingredients, scale, normalize))
     setSelectedRecipe(null)
     notify(`Kitchen updated after making ${recipe.name}`)
   }
@@ -434,7 +440,28 @@ function App() {
     notify(`${recipe.name} saved to your recipes`)
   }
 
-  function deleteCustomRecipe(recipe: Recipe) {
+  async function deleteRecipe(recipe: Recipe) {
+    if (recipe.source === 'mise') {
+      const previous = hiddenMiseRecipeIds
+      setHiddenMiseRecipeIds((current) => [...new Set([...current, recipe.id])])
+      setSelectedRecipe(null)
+      try {
+        if (householdId && session && !demoMode) await setMiseRecipeHidden(householdId, recipe.id, recipe.name, true)
+      } catch (error) {
+        setHiddenMiseRecipeIds(previous)
+        notify(errorMessage(error, 'This Mise recipe could not be removed.'))
+        return
+      }
+      setToast({
+        message: `${recipe.name} removed`,
+        undo: () => {
+          setHiddenMiseRecipeIds(previous)
+          if (householdId && session && !demoMode) void setMiseRecipeHidden(householdId, recipe.id, recipe.name, false)
+          setToast({ message: 'Recipe restored' })
+        },
+      })
+      return
+    }
     const previous = customRecipes
     setCustomRecipes((current) => current.filter((entry) => entry.id !== recipe.id))
     setSelectedRecipe(null)
@@ -508,7 +535,7 @@ function App() {
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
       {recipeEditorOpen && <RecipeEditor inventory={inventory} initialRecipe={editingRecipe || undefined} onClose={() => { setRecipeEditorOpen(false); setEditingRecipe(null) }} onSave={saveCustomRecipe} />}
-      {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} onEdit={selectedRecipe.source === 'user' ? () => { setEditingRecipe(selectedRecipe); setSelectedRecipe(null); setRecipeEditorOpen(true) } : undefined} onDelete={selectedRecipe.source !== 'mise' ? () => deleteCustomRecipe(selectedRecipe) : undefined} />}
+      {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} onEdit={selectedRecipe.source === 'user' ? () => { setEditingRecipe(selectedRecipe); setSelectedRecipe(null); setRecipeEditorOpen(true) } : undefined} onDelete={() => void deleteRecipe(selectedRecipe)} />}
       {toast && <div className="toast"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button onClick={toast.undo}><Undo2 size={14} /> Undo</button>}</div>}
     </div>
   )
@@ -763,8 +790,9 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
   const [members, setMembers] = useState<HouseholdMember[]>([])
   const [kitchenName, setKitchenName] = useState('')
   const [joinCode, setJoinCode] = useState('')
-  const [invite, setInvite] = useState<{ code: string; expiresAt: string } | null>(null)
-  const [working, setWorking] = useState<'name' | 'password' | 'preferences' | 'household' | 'invite' | 'join' | 'switch' | null>(null)
+  const [invite, setInvite] = useState<HouseholdInvite | null>(null)
+  const [activity, setActivity] = useState<HouseholdActivity[]>([])
+  const [working, setWorking] = useState<'name' | 'password' | 'preferences' | 'household' | 'invite' | 'revoke' | 'join' | 'switch' | 'member' | 'activity' | null>(null)
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const provider = session?.user.app_metadata.provider === 'google' ? 'Google' : 'Email and password'
   const activeHousehold = households.find((household) => household.id === householdId)
@@ -778,12 +806,17 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
   useEffect(() => {
     if (!session || !householdId) return
     let active = true
-    Promise.all([loadHouseholds(), loadHouseholdMembers(householdId)])
-      .then(([nextHouseholds, nextMembers]) => {
+    Promise.all([loadHouseholds(), loadHouseholdMembers(householdId), loadHouseholdActivity(householdId)])
+      .then(async ([nextHouseholds, nextMembers, nextActivity]) => {
         if (!active) return
         setHouseholds(nextHouseholds)
         setMembers(nextMembers)
+        setActivity(nextActivity)
         setKitchenName(nextHouseholds.find((household) => household.id === householdId)?.name || '')
+        if (nextHouseholds.find((household) => household.id === householdId)?.role === 'owner') {
+          const activeInvite = await loadActiveHouseholdInvite(householdId)
+          if (active) setInvite(activeInvite)
+        } else setInvite(null)
       })
       .catch((error) => { if (active) setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Shared kitchen details could not be loaded.' }) })
     return () => { active = false }
@@ -850,6 +883,51 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
     catch { setMessage({ type: 'error', text: 'Copying failed. Select the code and copy it manually.' }) }
   }
 
+  async function revokeInvite() {
+    if (!householdId || !invite) return
+    setWorking('revoke'); setMessage(null)
+    try {
+      await revokeHouseholdInvite(householdId)
+      setInvite(null)
+      setActivity(await loadHouseholdActivity(householdId))
+      setMessage({ type: 'success', text: 'Invite code revoked. It can no longer be used.' })
+    } catch (error) { setMessage({ type: 'error', text: errorMessage(error, 'Invite code could not be revoked.') }) }
+    finally { setWorking(null) }
+  }
+
+  async function changeMemberRole(member: HouseholdMember, role: HouseholdMember['role']) {
+    if (!householdId || member.role === role) return
+    setWorking('member'); setMessage(null)
+    try {
+      await updateHouseholdMemberRole(householdId, member.userId, role)
+      setMembers((current) => current.map((candidate) => candidate.userId === member.userId ? { ...candidate, role } : candidate))
+      setActivity(await loadHouseholdActivity(householdId))
+      setMessage({ type: 'success', text: `${member.displayName} is now a kitchen ${role}.` })
+    } catch (error) { setMessage({ type: 'error', text: errorMessage(error, 'Member role could not be updated.') }) }
+    finally { setWorking(null) }
+  }
+
+  async function removeMember(member: HouseholdMember) {
+    if (!householdId || !window.confirm(`Remove ${member.displayName} from this kitchen? Their account and personal kitchen will not be deleted.`)) return
+    setWorking('member'); setMessage(null)
+    try {
+      await removeHouseholdMember(householdId, member.userId)
+      setMembers((current) => current.filter((candidate) => candidate.userId !== member.userId))
+      setHouseholds((current) => current.map((household) => household.id === householdId ? { ...household, memberCount: Math.max(1, household.memberCount - 1) } : household))
+      setActivity(await loadHouseholdActivity(householdId))
+      setMessage({ type: 'success', text: `${member.displayName} was removed from this kitchen.` })
+    } catch (error) { setMessage({ type: 'error', text: errorMessage(error, 'Member could not be removed.') }) }
+    finally { setWorking(null) }
+  }
+
+  async function refreshActivity() {
+    if (!householdId) return
+    setWorking('activity')
+    try { setActivity(await loadHouseholdActivity(householdId)) }
+    catch (error) { setMessage({ type: 'error', text: errorMessage(error, 'Recent activity could not be refreshed.') }) }
+    finally { setWorking(null) }
+  }
+
   async function switchKitchen(nextHouseholdId: string) {
     if (!nextHouseholdId || nextHouseholdId === householdId) return
     setWorking('switch'); setMessage(null)
@@ -884,12 +962,13 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
           <div className="shared-kitchen-main">
             {households.length > 1 && <label>Active kitchen<select value={householdId} disabled={working === 'switch' || syncState !== 'saved'} onChange={(event) => switchKitchen(event.target.value)}>{households.map((household) => <option value={household.id} key={household.id}>{household.name} · {household.memberCount} member{household.memberCount === 1 ? '' : 's'}</option>)}</select></label>}
             {activeHousehold?.role === 'owner' ? <form className="kitchen-name-form" onSubmit={saveKitchenName}><label>Kitchen name<input value={kitchenName} maxLength={40} onChange={(event) => setKitchenName(event.target.value)} /></label><button className="secondary-button" disabled={working === 'household' || kitchenName.trim() === activeHousehold.name}>{working === 'household' ? 'Saving…' : 'Rename kitchen'}</button></form> : <div className="active-kitchen-name"><House /><div><strong>{activeHousehold?.name || 'Shared kitchen'}</strong><small>You joined as a member.</small></div></div>}
-            <div className="household-members"><span>Members</span>{members.map((member) => <div key={member.userId}><em>{member.displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</em><p><strong>{member.displayName}</strong><small>{member.role === 'owner' ? 'Kitchen owner' : 'Member'}</small></p></div>)}</div>
+            <div className="household-members"><span>Members</span>{members.map((member) => <div key={member.userId}><em>{member.displayName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</em><p><strong>{member.displayName}{member.userId === session.user.id ? ' · You' : ''}</strong><small>{member.role === 'owner' ? 'Kitchen owner' : 'Member'}</small></p>{activeHousehold?.role === 'owner' && member.userId !== session.user.id && <div className="member-actions"><select aria-label={`Role for ${member.displayName}`} value={member.role} disabled={working === 'member'} onChange={(event) => void changeMemberRole(member, event.target.value as HouseholdMember['role'])}><option value="member">Member</option><option value="owner">Owner</option></select><button type="button" className="icon-button delete" disabled={working === 'member' || member.role === 'owner'} onClick={() => void removeMember(member)} aria-label={`Remove ${member.displayName}`} title={member.role === 'owner' ? 'Change this owner to a member before removing them' : 'Remove member'}><Trash2 /></button></div>}</div>)}</div>
           </div>
           <div className="shared-kitchen-actions">
-            {activeHousehold?.role === 'owner' && <section><UserPlus /><h3>Invite someone</h3><p>Create a private code they can enter in their Mise settings. Codes expire after seven days.</p>{invite ? <div className="invite-code"><strong>{invite.code}</strong><button onClick={copyInvite} aria-label="Copy invite code"><Copy /></button><small>Expires {new Date(invite.expiresAt).toLocaleDateString()}</small></div> : <button className="secondary-button" onClick={makeInvite} disabled={working === 'invite'}>{working === 'invite' ? 'Creating…' : 'Create invite code'}</button>}</section>}
+            {activeHousehold?.role === 'owner' && <section><UserPlus /><h3>Invite someone</h3><p>Create a private code they can enter in their Mise settings. Codes expire after seven days.</p>{invite ? <div className="invite-code"><strong>{invite.code}</strong><button onClick={copyInvite} aria-label="Copy invite code"><Copy /></button><small>Expires {new Date(invite.expiresAt).toLocaleDateString()} · {invite.useCount}/{invite.maxUses} uses</small><button className="revoke-invite" onClick={() => void revokeInvite()} disabled={working === 'revoke'}><X /> {working === 'revoke' ? 'Revoking…' : 'Revoke code'}</button></div> : <button className="secondary-button" onClick={makeInvite} disabled={working === 'invite'}>{working === 'invite' ? 'Creating…' : 'Create invite code'}</button>}</section>}
             <form onSubmit={joinKitchen}><House /><h3>Join another kitchen</h3><p>Your personal kitchen stays available, and you can switch back at any time.</p><label>Invite code<input value={joinCode} maxLength={10} autoCapitalize="characters" onChange={(event) => setJoinCode(normalizeInviteCode(event.target.value))} placeholder="10-character code" /></label><button className="secondary-button" disabled={working === 'join' || !inviteCodeIsValid(joinCode) || syncState !== 'saved'}>{working === 'join' ? 'Joining…' : 'Join kitchen'}</button></form>
           </div>
+          <section className="household-activity"><div><span>Recent activity</span><button type="button" onClick={() => void refreshActivity()} disabled={working === 'activity'}><RefreshCw /> {working === 'activity' ? 'Refreshing…' : 'Refresh'}</button></div>{activity.length ? <ol>{activity.map((entry) => <li key={entry.id}><em>{entry.actorName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</em><p><strong>{entry.actorName}</strong> {entry.description.toLowerCase()}<small>{new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></p></li>)}</ol> : <p>No shared-kitchen changes yet.</p>}</section>
         </div> : <p className="settings-copy">Sign in to invite household members and share a kitchen.</p>}
       </article>
       <article className="settings-card preferences-card panel">
@@ -1104,12 +1183,12 @@ function RecipeSheet({ recipe, inventory, onClose, onAction, onEdit, onDelete }:
   const scale = servings / recipe.servings
   const ingredientStatus = recipe.ingredients.map((ingredient) => {
     const needed = Number((ingredient.amount * scale).toFixed(2))
-    const have = inventory.find((item) => normalize(item.name) === normalize(ingredient.name))?.quantity || 0
+    const have = availableAmount(inventory, ingredient, normalize)
     return { ...ingredient, needed, missing: have < needed }
   })
   const missingCount = ingredientStatus.filter((ingredient) => ingredient.missing).length
   const match = Math.round(((ingredientStatus.length - missingCount) / ingredientStatus.length) * 100)
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="recipe-sheet" onMouseDown={(e) => e.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close recipe"><X /></button><div className="sheet-art" style={{ '--accent': recipe.accent } as React.CSSProperties}>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}<em>{missingCount ? `${match}% match` : 'Everything available'}</em></div><div className="sheet-body">{recipe.source !== 'mise' && <div className="recipe-owner-actions"><span>{recipe.source === 'spoonacular' ? 'Saved recipe' : 'My recipe'}</span>{recipe.source === 'user' && <button onClick={onEdit}><Pencil /> Edit</button>}<button className="delete" onClick={onDelete}><Trash2 /> Remove</button></div>}<span className="eyebrow">Your kitchen match</span><h2>{recipe.name}</h2><p>{recipe.description}</p>{recipe.preferenceWarnings.length > 0 && <div className="preference-warning"><TriangleAlert /><div><strong>Check against your preferences</strong><span>{recipe.preferenceWarnings.join(' · ')}</span></div></div>}<div className="sheet-stats"><span><Clock3 /> {recipe.time} min</span><span><Sparkles /> {recipe.protein}g protein</span></div><div className="serving-control"><div><strong>Servings</strong><small>Ingredients update automatically</small></div><div><button onClick={() => setServings((value) => Math.max(1, value - 1))}><Minus /></button><strong>{servings}</strong><button onClick={() => setServings((value) => Math.min(12, value + 1))}><Plus /></button></div></div><h3>From your kitchen</h3><div className="ingredient-list">{ingredientStatus.map((ingredient) => <div className={ingredient.missing ? 'missing' : ''} key={`${ingredient.name}-${ingredient.unit}`}><span>{ingredient.missing ? <Plus /> : <Check />}</span><strong>{ingredient.name}</strong><small>{ingredient.needed} {ingredient.unit}</small></div>)}</div>{recipe.urgent > 0 && <div className="rescue-note"><Leaf /> This meal uses {recipe.urgent} ingredient{recipe.urgent === 1 ? '' : 's'} that should be enjoyed soon.</div>}{Boolean(recipe.instructions?.length) && <div className="recipe-steps"><h3>Method</h3><ol>{recipe.instructions!.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}{recipe.sourceUrl && <a className="source-recipe-link" href={recipe.sourceUrl} target="_blank" rel="noreferrer">View original recipe <ExternalLink /></a>}<button className="submit-button" onClick={() => onAction(scale)}>{missingCount ? `Add ${missingCount} missing item${missingCount === 1 ? '' : 's'} to grocery list` : `Cook ${servings} servings & update my kitchen`} <ArrowRight /></button></div></section></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="recipe-sheet" onMouseDown={(e) => e.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close recipe"><X /></button><div className="sheet-art" style={{ '--accent': recipe.accent } as React.CSSProperties}>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}<em>{missingCount ? `${match}% match` : 'Everything available'}</em></div><div className="sheet-body"><div className="recipe-owner-actions"><span>{recipe.source === 'mise' ? 'Mise recipe' : recipe.source === 'spoonacular' ? 'Saved recipe' : 'My recipe'}</span>{recipe.source === 'user' && <button onClick={onEdit}><Pencil /> Edit</button>}<button className="delete" onClick={onDelete}><Trash2 /> Remove</button></div><span className="eyebrow">Your kitchen match</span><h2>{recipe.name}</h2><p>{recipe.description}</p>{recipe.preferenceWarnings.length > 0 && <div className="preference-warning"><TriangleAlert /><div><strong>Check against your preferences</strong><span>{recipe.preferenceWarnings.join(' · ')}</span></div></div>}<div className="sheet-stats"><span><Clock3 /> {recipe.time} min</span><span><Sparkles /> {recipe.protein}g protein</span></div><div className="serving-control"><div><strong>Servings</strong><small>Ingredients update automatically</small></div><div><button onClick={() => setServings((value) => Math.max(1, value - 1))}><Minus /></button><strong>{servings}</strong><button onClick={() => setServings((value) => Math.min(12, value + 1))}><Plus /></button></div></div><h3>From your kitchen</h3><div className="ingredient-list">{ingredientStatus.map((ingredient) => <div className={ingredient.missing ? 'missing' : ''} key={`${ingredient.name}-${ingredient.unit}`}><span>{ingredient.missing ? <Plus /> : <Check />}</span><strong>{ingredient.name}</strong><small>{formatAmount(ingredient.needed)} {ingredient.unit}</small></div>)}</div>{recipe.urgent > 0 && <div className="rescue-note"><Leaf /> This meal uses {recipe.urgent} ingredient{recipe.urgent === 1 ? '' : 's'} that should be enjoyed soon.</div>}{Boolean(recipe.instructions?.length) && <div className="recipe-steps"><h3>Method</h3><ol>{recipe.instructions!.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}{recipe.sourceUrl && <a className="source-recipe-link" href={recipe.sourceUrl} target="_blank" rel="noreferrer">View original recipe <ExternalLink /></a>}<button className="submit-button" onClick={() => onAction(scale)}>{missingCount ? `Add ${missingCount} missing item${missingCount === 1 ? '' : 's'} to grocery list` : `Cook ${servings} servings & update my kitchen`} <ArrowRight /></button></div></section></div>
 }
 
 function Empty({ title, copy }: { title: string; copy: string }) { return <div className="empty"><PackageOpen /><strong>{title}</strong><p>{copy}</p></div> }

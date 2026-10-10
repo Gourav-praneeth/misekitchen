@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
+import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
 import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -41,7 +41,50 @@ export async function createHouseholdInvite(householdId: string) {
   if (error) throw error
   const invite = data?.[0]
   if (!invite) throw new Error('Invite code could not be created.')
-  return { code: String(invite.invite_code), expiresAt: String(invite.expires_at) }
+  return { code: String(invite.invite_code), expiresAt: String(invite.expires_at), useCount: 0, maxUses: Number(invite.max_uses || 8) } as HouseholdInvite
+}
+
+export async function loadActiveHouseholdInvite(householdId: string): Promise<HouseholdInvite | null> {
+  if (!supabase) return null
+  const { data, error } = await supabase.rpc('get_active_household_invite', { target_household_id: householdId })
+  if (error) throw error
+  const invite = data?.[0]
+  return invite ? { code: String(invite.invite_code), expiresAt: String(invite.expires_at), useCount: Number(invite.use_count), maxUses: Number(invite.max_uses) } : null
+}
+
+export async function revokeHouseholdInvite(householdId: string) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('revoke_household_invite', { target_household_id: householdId })
+  if (error) throw error
+}
+
+export async function updateHouseholdMemberRole(householdId: string, userId: string, role: HouseholdMember['role']) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('set_household_member_role', { target_household_id: householdId, target_user_id: userId, next_role: role })
+  if (error) throw error
+}
+
+export async function removeHouseholdMember(householdId: string, userId: string) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('remove_household_member', { target_household_id: householdId, target_user_id: userId })
+  if (error) throw error
+}
+
+export async function loadHouseholdActivity(householdId: string): Promise<HouseholdActivity[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('list_household_activity', { target_household_id: householdId, activity_limit: 30 })
+  if (error) throw error
+  return (data || []).map((row: Record<string, unknown>) => ({
+    id: String(row.id), actorUserId: row.actor_user_id ? String(row.actor_user_id) : null,
+    actorName: String(row.actor_name || 'Mise'), action: String(row.action), entityType: String(row.entity_type),
+    entityId: row.entity_id ? String(row.entity_id) : null, description: String(row.description), createdAt: String(row.created_at),
+  }))
+}
+
+export async function setMiseRecipeHidden(householdId: string, recipeId: string, recipeName: string, hidden: boolean) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('set_mise_recipe_hidden', { target_household_id: householdId, recipe_id: recipeId, recipe_name: recipeName, hidden })
+  if (error) throw error
 }
 
 export async function joinHousehold(inviteCode: string) {
@@ -89,13 +132,13 @@ export async function saveFoodPreferences(userId: string, preferences: FoodPrefe
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], recipes: [], mealPlan: [], initialized: false }
+  if (!supabase) return { inventory: [], grocery: [], recipes: [], mealPlan: [], hiddenMiseRecipeIds: [], initialized: false }
   const [inventoryResult, groceryResult, recipeResult, mealPlanResult, householdResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('household_recipes').select('*').eq('household_id', householdId).order('name'),
     supabase.from('meal_plan_entries').select('*').eq('household_id', householdId).order('plan_date'),
-    supabase.from('households').select('initialized').eq('id', householdId).single(),
+    supabase.from('households').select('initialized,hidden_mise_recipe_ids').eq('id', householdId).single(),
   ])
   if (inventoryResult.error) throw inventoryResult.error
   if (groceryResult.error) throw groceryResult.error
@@ -122,6 +165,7 @@ export async function loadCloudKitchen(householdId: string) {
       id: row.id, date: row.plan_date, recipeId: row.recipe_id,
       servings: Number(row.servings), mealSlot: row.meal_slot,
     })) as MealPlanEntry[],
+    hiddenMiseRecipeIds: (householdResult.data.hidden_mise_recipe_ids || []) as string[],
     initialized: Boolean(householdResult.data.initialized),
   }
 }

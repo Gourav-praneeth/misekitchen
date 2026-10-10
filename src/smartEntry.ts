@@ -1,6 +1,7 @@
 import type { Category, InventoryItem, Location } from './types'
 import { canonicalFoodName, getFoodIntelligence } from './foodCatalog'
 import { expirationDateFromText, expirationWarning, freshnessCueFromText, removeExpirationDateText, removeFreshnessCue, suggestedShelfLifeDays } from './expirationIntelligence'
+import { convertAmount } from './measurements'
 
 export type SmartEntryConfidence = 'high' | 'medium' | 'low'
 export type SmartEntryItem = InventoryItem & {
@@ -92,9 +93,7 @@ export function normalizeFoodName(value: string) {
 }
 
 export function sameFoodAndUnit(left: Pick<InventoryItem, 'name' | 'unit'>, right: Pick<InventoryItem, 'name' | 'unit'>) {
-  const leftUnit = unitAliases[left.unit.toLowerCase()] || left.unit.toLowerCase()
-  const rightUnit = unitAliases[right.unit.toLowerCase()] || right.unit.toLowerCase()
-  return normalizeFoodName(left.name) === normalizeFoodName(right.name) && leftUnit === rightUnit
+  return normalizeFoodName(left.name) === normalizeFoodName(right.name) && convertAmount(1, left.unit, right.unit) !== null
 }
 
 export function parseSmartEntry(input: string): SmartEntryItem[] {
