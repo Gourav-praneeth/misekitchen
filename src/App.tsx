@@ -19,7 +19,7 @@ import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type Di
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, getHouseholdId, loadCloudKitchen, loadFoodPreferences, markHouseholdInitialized, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, submitFeedback, supabase } from './supabase'
-import { withRetry } from './sync'
+import { createLatestSaveQueue, withRetry } from './sync'
 import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
@@ -99,6 +99,7 @@ function App() {
   const starterGrocery = useRef(grocery)
   const starterRecipes = useRef(customRecipes)
   const starterMealPlan = useRef(mealPlan)
+  const saveQueue = useRef(createLatestSaveQueue())
 
   useEffect(() => {
     if (!supabase) return
@@ -211,18 +212,22 @@ function App() {
 
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
+    const reservation = saveQueue.current.reserve()
     const snapshot = { householdId, inventory, grocery, recipes: customRecipes, mealPlan, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
-      try {
+      const result = await reservation.run(async () => {
         await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveRecipeSnapshot(householdId, customRecipes), saveMealPlanSnapshot(householdId, mealPlan)]))
+      })
+      if (!result.latest) return
+      if (!result.error) {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
         setSyncState('saved')
-      } catch (error) {
-        console.error(error)
+      } else {
+        console.error(result.error)
         setSyncState(navigator.onLine ? 'error' : 'offline')
       }
     }, retryToken ? 50 : 450)

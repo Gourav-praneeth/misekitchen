@@ -11,6 +11,29 @@ export async function withRetry<T>(operation: () => Promise<T>, attempts = 3, wa
   throw lastError
 }
 
+export function createLatestSaveQueue() {
+  let tail = Promise.resolve()
+  let latestVersion = 0
+
+  return {
+    reserve() {
+      const version = ++latestVersion
+      return {
+        async run(operation: () => Promise<void>) {
+          const queued = tail.then(operation)
+          tail = queued.catch(() => undefined)
+          try {
+            await queued
+            return { latest: version === latestVersion }
+          } catch (error) {
+            return { latest: version === latestVersion, error }
+          }
+        },
+      }
+    },
+  }
+}
+
 function defaultWait(milliseconds: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 }
