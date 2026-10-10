@@ -99,7 +99,7 @@ create or replace function public.create_household_invite(target_household_id uu
 returns table (invite_code text, expires_at timestamptz)
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   generated_code text;
@@ -115,7 +115,7 @@ begin
   where household_id = target_household_id and active = true;
 
   loop
-    generated_code := upper(encode(gen_random_bytes(5), 'hex'));
+    generated_code := upper(encode(extensions.gen_random_bytes(5), 'hex'));
     exit when not exists (select 1 from public.household_invites where code = generated_code);
   end loop;
 

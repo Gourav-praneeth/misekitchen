@@ -57,6 +57,10 @@ function normalize(value: string) {
   return normalizeFoodName(value)
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  return error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : fallback
+}
+
 function App() {
   const [view, setView] = useState<View>('home')
   const [kitchenCategory, setKitchenCategory] = useState<KitchenCategory>('All')
@@ -831,7 +835,7 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
     if (!householdId) return
     setWorking('invite'); setMessage(null)
     try { setInvite(await createHouseholdInvite(householdId)) }
-    catch (error) { setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Invite code could not be created.' }) }
+    catch (error) { setMessage({ type: 'error', text: errorMessage(error, 'Invite code could not be created.') }) }
     finally { setWorking(null) }
   }
 
