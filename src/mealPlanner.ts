@@ -46,7 +46,7 @@ export function groceryForMealPlan(entries: MealPlanEntry[], recipes: Recipe[], 
 
   return needs.flatMap((needed) => {
     const available = availableAmount(inventory, needed, normalizeFoodName)
-    const amount = Number(Math.max(needed.amount - available, 0).toFixed(1))
+    const amount = Number(Math.max(needed.amount - available, 0).toFixed(2))
     return amount > 0 ? [{ name: needed.name, unit: needed.unit, amount, checked: false }] : []
   })
 }

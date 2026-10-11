@@ -67,7 +67,7 @@ export function deductIngredients(
       if (availableInRecipeUnit === null) return
       const usedInRecipeUnit = Math.min(remaining, availableInRecipeUnit)
       const usedInInventoryUnit = convertAmount(usedInRecipeUnit, ingredient.unit, item.unit) || 0
-      item.quantity = Math.max(0, Number((item.quantity - usedInInventoryUnit).toFixed(1)))
+      item.quantity = Math.max(0, Number((item.quantity - usedInInventoryUnit).toFixed(2)))
       remaining -= usedInRecipeUnit
     })
   })
@@ -75,6 +75,6 @@ export function deductIngredients(
 }
 
 export function formatAmount(amount: number) {
-  const rounded = Math.round((amount + Number.EPSILON) * 10) / 10
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  const rounded = Math.round((amount + Number.EPSILON) * 100) / 100
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
 }

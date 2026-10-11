@@ -143,6 +143,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .household-activity > div > button { display: flex; align-items: center; gap: 4px; padding: 5px 7px; border: 0; background: transparent; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
 .household-activity > div > button svg { width: 11px; }
 .household-activity ol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.household-activity ol { max-height: 310px; padding-right: 5px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .household-activity li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px; border: 1px solid #e2e4dd; border-radius: 10px; background: #faf9f5; }
 .household-activity li > em { display: grid; flex: 0 0 auto; place-items: center; width: 29px; height: 29px; border-radius: 50%; background: #e4ede2; color: var(--green); font-size: 8px; font-style: normal; font-weight: 800; }
 .household-activity li p { min-width: 0; margin: 0; color: #607067; font-size: 9px; }
@@ -150,3 +151,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .household-activity li small { display: block; margin-top: 3px; color: #909990; font-size: 7px; }
 .household-activity > p { margin: 10px 0 0; color: #859087; font-size: 9px; }
 @media (max-width: 700px) { .member-actions select { min-width: 78px; }.household-activity ol { grid-template-columns: 1fr; } }
+
+/* Four-row ingredient icon browser */
+.ingredient-icon-picker > div { grid-auto-rows: 44px; max-height: 212px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.ingredient-icon-picker button { aspect-ratio: auto; min-height: 44px; }

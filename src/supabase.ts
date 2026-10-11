@@ -72,7 +72,7 @@ export async function removeHouseholdMember(householdId: string, userId: string)
 
 export async function loadHouseholdActivity(householdId: string): Promise<HouseholdActivity[]> {
   if (!supabase) return []
-  const { data, error } = await supabase.rpc('list_household_activity', { target_household_id: householdId, activity_limit: 30 })
+  const { data, error } = await supabase.rpc('list_household_activity', { target_household_id: householdId, activity_limit: 15 })
   if (error) throw error
   return (data || []).map((row: Record<string, unknown>) => ({
     id: String(row.id), actorUserId: row.actor_user_id ? String(row.actor_user_id) : null,

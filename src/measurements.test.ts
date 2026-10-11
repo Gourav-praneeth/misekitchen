@@ -14,13 +14,14 @@ describe('universal measurements', () => {
   it('matches and deducts a recipe amount in a different unit', () => {
     expect(availableAmount([milk], { name: 'Milk', unit: 'cups' }, (value) => value.toLowerCase())).toBeCloseTo(4.22675, 4)
     const [remaining] = deductIngredients([milk], [{ name: 'Milk', amount: 0.5, unit: 'cups' }], 1, (value) => value.toLowerCase())
-    expect(remaining.quantity).toBe(881.7)
+    expect(remaining.quantity).toBe(881.71)
     expect(remaining.unit).toBe('ml')
   })
 
-  it('shows fractional amounts with one decimal place', () => {
-    expect(formatAmount(1 / 2)).toBe('0.5')
-    expect(formatAmount(2 / 3)).toBe('0.7')
+  it('shows fractional amounts with up to two decimal places', () => {
+    expect(formatAmount(1 / 4)).toBe('0.25')
+    expect(formatAmount(1 / 2)).toBe('0.50')
+    expect(formatAmount(2 / 3)).toBe('0.67')
     expect(formatAmount(2)).toBe('2')
   })
 })

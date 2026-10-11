@@ -21,7 +21,7 @@ export function matchRecipes(recipeList: Recipe[], inventory: InventoryItem[], p
     })
     const missing = statuses.flatMap(({ ingredient, have, enough }) => enough ? [] : [{
       ...ingredient,
-      amount: Number(Math.max(ingredient.amount - have, 0).toFixed(1)),
+      amount: Number(Math.max(ingredient.amount - have, 0).toFixed(2)),
       checked: false,
     }])
     const urgent = statuses.filter(({ item, have }) => {
