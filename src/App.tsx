@@ -36,12 +36,7 @@ type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery:
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
-const foodIcons = Array.from(new Set([
-  ...foodCatalog.map((profile) => profile.emoji),
-  '🥩', '🥓', '🦞', '🦀', '🦑', '🐙', '🥚', '🫘', '🫑', '🌶️', '🌽', '🫛',
-  '🍏', '🍐', '🍑', '🍒', '🍉', '🍈', '🍍', '🥭', '🥝', '🥥', '🫐', '🫒',
-  '🌱', '🌰', '🫙', '🍫', '🍯', '🍶', '🥤', '🫗', '🍵', '☕', '🧊', '🧂',
-]))
+const foodIcons = Array.from(new Set(foodCatalog.map((profile) => profile.emoji)))
 
 function kitchenStorageKey(kind: 'cache' | 'pending', userId: string) {
   return `mise-cloud-${kind}-v1-${userId}`

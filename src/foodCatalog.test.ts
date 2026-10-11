@@ -3,7 +3,7 @@ import { canonicalFoodName, foodCatalog, getFoodIntelligence } from './foodCatal
 
 describe('food intelligence catalog', () => {
   it('contains a broad offline catalog', () => {
-    expect(foodCatalog.length).toBeGreaterThanOrEqual(65)
+    expect(foodCatalog.length).toBeGreaterThanOrEqual(95)
   })
 
   it('expands common grocery receipt abbreviations', () => {
@@ -17,6 +17,15 @@ describe('food intelligence catalog', () => {
     expect(getFoodIntelligence('oat milk')?.profile.name).toBe('Oat milk')
     expect(getFoodIntelligence('sweet potatoes')?.profile.name).toBe('Sweet potatoes')
     expect(getFoodIntelligence('chicken broth')?.profile.name).toBe('Chicken broth')
+  })
+
+  it('auto-suggests the expanded ingredient icons and storage details', () => {
+    expect(getFoodIntelligence('lobster tails')?.profile).toMatchObject({ name: 'Lobster', emoji: '🦞', category: 'Protein', location: 'Fridge' })
+    expect(getFoodIntelligence('canned kidney beans')?.profile).toMatchObject({ name: 'Beans', emoji: '🫘', category: 'Pantry', location: 'Pantry' })
+    expect(getFoodIntelligence('jalapeño')?.profile).toMatchObject({ name: 'Chili peppers', emoji: '🌶️', location: 'Fridge' })
+    expect(getFoodIntelligence('fresh mango')?.profile).toMatchObject({ name: 'Mangoes', emoji: '🥭', location: 'Fridge' })
+    expect(getFoodIntelligence('apple cider vinegar')?.profile).toMatchObject({ name: 'Vinegar', emoji: '🫗', location: 'Pantry' })
+    expect(getFoodIntelligence('green tea')?.profile).toMatchObject({ name: 'Tea', emoji: '🍵', location: 'Pantry' })
   })
 
   it('normalizes equivalent names for duplicate detection', () => {
