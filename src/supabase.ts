@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
+import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
 import { daysUntilExpiration, expirationDateFromDays } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -132,16 +132,20 @@ export async function saveFoodPreferences(userId: string, preferences: FoodPrefe
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], recipes: [], mealPlan: [], hiddenMiseRecipeIds: [], initialized: false }
-  const [inventoryResult, groceryResult, recipeResult, mealPlanResult, householdResult] = await Promise.all([
+  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], hiddenMiseRecipeIds: [], initialized: false }
+  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, householdResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
+    supabase.from('grocery_staple_groups').select('*').eq('household_id', householdId).order('sort_order'),
+    supabase.from('grocery_staples').select('*').eq('household_id', householdId).order('sort_order'),
     supabase.from('household_recipes').select('*').eq('household_id', householdId).order('name'),
     supabase.from('meal_plan_entries').select('*').eq('household_id', householdId).order('plan_date'),
     supabase.from('households').select('initialized,hidden_mise_recipe_ids').eq('id', householdId).single(),
   ])
   if (inventoryResult.error) throw inventoryResult.error
   if (groceryResult.error) throw groceryResult.error
+  if (stapleGroupResult.error) throw stapleGroupResult.error
+  if (stapleResult.error) throw stapleResult.error
   if (recipeResult.error) throw recipeResult.error
   if (mealPlanResult.error) throw mealPlanResult.error
   if (householdResult.error) throw householdResult.error
@@ -154,6 +158,12 @@ export async function loadCloudKitchen(householdId: string) {
     grocery: (groceryResult.data || []).map((row) => ({
       name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
     })) as GroceryItem[],
+    stapleGroups: (stapleGroupResult.data || []).map((row) => ({
+      id: row.id, name: row.name, sortOrder: Number(row.sort_order),
+    })) as GroceryStapleGroup[],
+    staples: (stapleResult.data || []).map((row) => ({
+      id: row.id, groupId: row.group_id, name: row.name, amount: Number(row.amount), unit: row.unit, sortOrder: Number(row.sort_order),
+    })) as GroceryStaple[],
     recipes: (recipeResult.data || []).map((row) => ({
       id: row.id, name: row.name, description: row.description, time: row.time_minutes,
       servings: row.servings, protein: Number(row.protein_grams), accent: row.accent,
@@ -238,7 +248,7 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
   if (!supabase) return
   const rows = items.map((item) => ({
     household_id: householdId,
-    id: item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    id: `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
   }))
   if (rows.length) {
@@ -251,6 +261,36 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
     const { error } = await supabase.from('grocery_items').delete().eq('household_id', householdId)
     if (error) throw error
   }
+}
+
+export async function saveStaplesSnapshot(householdId: string, groups: GroceryStapleGroup[], staples: GroceryStaple[]) {
+  if (!supabase) return
+  if (!groups.length) {
+    const { error } = await supabase.from('grocery_staple_groups').delete().eq('household_id', householdId)
+    if (error) throw error
+    return
+  }
+  const groupRows = groups.map((group) => ({ household_id: householdId, id: group.id, name: group.name, sort_order: group.sortOrder }))
+  const { error: groupError } = await supabase.from('grocery_staple_groups').upsert(groupRows, { onConflict: 'household_id,id' })
+  if (groupError) throw groupError
+  const groupIds = groupRows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
+  const { error: deleteGroupError } = await supabase.from('grocery_staple_groups').delete().eq('household_id', householdId).not('id', 'in', `(${groupIds})`)
+  if (deleteGroupError) throw deleteGroupError
+
+  if (!staples.length) {
+    const { error } = await supabase.from('grocery_staples').delete().eq('household_id', householdId)
+    if (error) throw error
+    return
+  }
+  const stapleRows = staples.map((staple) => ({
+    household_id: householdId, id: staple.id, group_id: staple.groupId,
+    name: staple.name, amount: staple.amount, unit: staple.unit, sort_order: staple.sortOrder,
+  }))
+  const { error: stapleError } = await supabase.from('grocery_staples').upsert(stapleRows, { onConflict: 'household_id,id' })
+  if (stapleError) throw stapleError
+  const stapleIds = stapleRows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
+  const { error: deleteStapleError } = await supabase.from('grocery_staples').delete().eq('household_id', householdId).not('id', 'in', `(${stapleIds})`)
+  if (deleteStapleError) throw deleteStapleError
 }
 
 export async function submitFeedback(

@@ -38,6 +38,18 @@ export type Recipe = {
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }
 
+export type GroceryStapleGroup = {
+  id: string
+  name: string
+  sortOrder: number
+}
+
+export type GroceryStaple = RecipeIngredient & {
+  id: string
+  groupId: string
+  sortOrder: number
+}
+
 export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
 export type MealPlanEntry = {

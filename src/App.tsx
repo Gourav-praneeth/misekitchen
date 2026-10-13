@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
+  ArrowDown, ArrowRight, ArrowUp, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
   ExternalLink, House, KeyRound, Leaf, ListFilter, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserPlus, UserRound, UsersRound, WifiOff, X,
 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { recipes, seedInventory } from './data'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
+import { addOrUpdateStaple, groceryFromStaples, moveStaple, moveStapleGroup, orderedStapleGroups, orderedStaples } from './groceryStaples'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
@@ -23,16 +24,16 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, saveStaplesSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealSlot, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealSlot, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -61,6 +62,10 @@ function normalize(value: string) {
   return normalizeFoodName(value)
 }
 
+function localId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID()}`
+}
+
 function errorMessage(error: unknown, fallback: string) {
   return error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : fallback
 }
@@ -76,6 +81,12 @@ function App() {
   })
   const [grocery, setGrocery] = useState<GroceryItem[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-grocery-v1') || '') || [] } catch { return [] }
+  })
+  const [stapleGroups, setStapleGroups] = useState<GroceryStapleGroup[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-staple-groups-v1') || '') || [] } catch { return [] }
+  })
+  const [staples, setStaples] = useState<GroceryStaple[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-staples-v1') || '') || [] } catch { return [] }
   })
   const [customRecipes, setCustomRecipes] = useState<Recipe[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-recipes-v1') || '') || [] } catch { return [] }
@@ -109,6 +120,8 @@ function App() {
   const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false)
   const starterInventory = useRef(inventory)
   const starterGrocery = useRef(grocery)
+  const starterStapleGroups = useRef(stapleGroups)
+  const starterStaples = useRef(staples)
   const starterRecipes = useRef(customRecipes)
   const starterMealPlan = useRef(mealPlan)
   const saveQueue = useRef(createLatestSaveQueue())
@@ -153,6 +166,8 @@ function App() {
             setHouseholdId(localKitchen.householdId)
             setInventory(localKitchen.inventory.map((item) => withExpirationDate(item)))
             setGrocery(localKitchen.grocery)
+            setStapleGroups(localKitchen.stapleGroups || [])
+            setStaples(localKitchen.staples || [])
             setCustomRecipes(localKitchen.recipes || [])
             setMealPlan(localKitchen.mealPlan || [])
             setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
@@ -171,6 +186,8 @@ function App() {
         if (pending?.householdId === id) {
           setInventory(pending.inventory.map((item) => withExpirationDate(item)))
           setGrocery(pending.grocery)
+          setStapleGroups(pending.stapleGroups || [])
+          setStaples(pending.staples || [])
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
@@ -180,15 +197,19 @@ function App() {
           setCustomRecipes(starterRecipes.current)
           setMealPlan(starterMealPlan.current)
           setHiddenMiseRecipeIds([])
-          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveRecipeSnapshot(id, starterRecipes.current), saveMealPlanSnapshot(id, starterMealPlan.current)])
+          setStapleGroups(starterStapleGroups.current)
+          setStaples(starterStaples.current)
+          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveStaplesSnapshot(id, starterStapleGroups.current, starterStaples.current), saveRecipeSnapshot(id, starterRecipes.current), saveMealPlanSnapshot(id, starterMealPlan.current)])
           await markHouseholdInitialized(id)
         } else {
           setInventory(cloud.inventory)
           setGrocery(cloud.grocery)
+          setStapleGroups(cloud.stapleGroups)
+          setStaples(cloud.staples)
           setCustomRecipes(cloud.recipes)
           setMealPlan(cloud.mealPlan)
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, recipes: cloud.recipes, mealPlan: cloud.mealPlan, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
         setCloudReady(true)
         setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
@@ -207,6 +228,12 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-grocery-v1', JSON.stringify(grocery))
   }, [grocery, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-staple-groups-v1', JSON.stringify(stapleGroups))
+  }, [stapleGroups, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-staples-v1', JSON.stringify(staples))
+  }, [staples, session, demoMode])
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-recipes-v1', JSON.stringify(customRecipes))
   }, [customRecipes, session, demoMode])
@@ -232,13 +259,13 @@ function App() {
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
     const reservation = saveQueue.current.reserve()
-    const snapshot = { householdId, inventory, grocery, recipes: customRecipes, mealPlan, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
       const result = await reservation.run(async () => {
-        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveRecipeSnapshot(householdId, customRecipes), saveMealPlanSnapshot(householdId, mealPlan)]))
+        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveStaplesSnapshot(householdId, stapleGroups, staples), saveRecipeSnapshot(householdId, customRecipes), saveMealPlanSnapshot(householdId, mealPlan)]))
       })
       if (!result.latest) return
       if (!result.error) {
@@ -251,7 +278,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, customRecipes, mealPlan, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -524,7 +551,7 @@ function App() {
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
-          {view === 'grocery' && <Grocery grocery={grocery} inventory={inventory} setGrocery={setGrocery} setInventory={setInventory} notify={notify} />}
+          {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
@@ -785,10 +812,15 @@ function ExternalRecipeSheet({ preview, details, loading, isSaved, onClose, onSa
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="external-recipe-sheet" onMouseDown={(event) => event.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close discovered recipe"><X /></button><div className="external-recipe-image">{preview.image ? <img src={preview.image} alt="" /> : <span>🍽️</span>}<em>Discovered for your kitchen</em></div><div className="external-recipe-body"><span className="eyebrow">Spoonacular recipe</span><h2>{preview.title}</h2>{loading && <div className="discover-loading compact"><RefreshCw className="spin" /> Loading recipe details…</div>}{details && <><div className="sheet-stats"><span><Clock3 /> {details.readyInMinutes || '—'} min</span><span><ChefHat /> {details.servings} servings</span></div><h3>Ingredients</h3><div className="external-ingredients">{details.ingredients.map((item, index) => <div key={`${item.name}-${index}`}><span>{preview.missedIngredients.some((missing) => normalize(missing.name) === normalize(item.name)) ? <Plus /> : <Check />}</span><p><strong>{item.name}</strong><small>{item.original || `${item.amount} ${item.unit}`}</small></p></div>)}</div>{details.instructions.length > 0 && <div className="recipe-steps"><h3>Method</h3><ol>{details.instructions.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<div className="external-actions"><button className="save-recipe-button" onClick={onSave} disabled={isSaved}>{isSaved ? <BookmarkCheck /> : <Bookmark />} {isSaved ? 'Saved to your recipes' : 'Save recipe'}</button>{preview.missedIngredientCount > 0 && <button className="submit-button" onClick={onAddMissing}>Add {preview.missedIngredientCount} missing item{preview.missedIngredientCount === 1 ? '' : 's'} <ShoppingBasket /></button>}{details.sourceUrl && <a className="secondary-button" href={details.sourceUrl} target="_blank" rel="noreferrer">View full original recipe <ExternalLink /></a>}</div><p className="spoonacular-credit">Powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p></>}</div></section></div>
 }
 
-function Grocery({ grocery, inventory, setGrocery, setInventory, notify }: { grocery: GroceryItem[]; inventory: InventoryItem[]; setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void }) {
+function Grocery({ grocery, stapleGroups, staples, inventory, setGrocery, setStapleGroups, setStaples, setInventory, notify }: {
+  grocery: GroceryItem[]; stapleGroups: GroceryStapleGroup[]; staples: GroceryStaple[]; inventory: InventoryItem[];
+  setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setStapleGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
+  setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void
+}) {
   const [draft, setDraft] = useState('')
   const [filter, setFilter] = useState<'all' | 'needed' | 'checked'>('all')
   const [editing, setEditing] = useState<{ index: number; item: GroceryItem } | null>(null)
+  const [staplesOpen, setStaplesOpen] = useState(false)
   const checkedCount = grocery.filter((item) => item.checked).length
   const neededCount = grocery.length - checkedCount
   const visible = grocery.map((item, index) => ({ item, index })).filter(({ item }) => filter === 'all' || (filter === 'checked' ? item.checked : !item.checked))
@@ -814,18 +846,74 @@ function Grocery({ grocery, inventory, setGrocery, setInventory, notify }: { gro
     setEditing(null)
     notify(`${next.name} updated`)
   }
+  function saveAsStaple(item: GroceryItem) {
+    let group = orderedStapleGroups(stapleGroups)[0]
+    if (!group) {
+      group = { id: localId('group'), name: 'Weekly essentials', sortOrder: 0 }
+      setStapleGroups([group])
+    }
+    const candidate: GroceryStaple = { id: localId('staple'), groupId: group.id, name: item.name, amount: item.amount, unit: item.unit, sortOrder: orderedStaples(staples, group.id).length }
+    setStaples((current) => addOrUpdateStaple(current, candidate))
+    notify(`${item.name} saved to ${group.name}`)
+  }
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.0</h1><p>Organized by aisle, synced with your recipes, and ready to move purchases into your kitchen.</p></div><div className="title-actions">{neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={moveCheckedToKitchen}><PackageOpen size={18} /> Add {checkedCount} to kitchen</button>}</div></div>
     <div className="grocery-progress panel"><div><span><strong>{checkedCount}</strong> of {grocery.length} collected</span><small>{neededCount ? `${neededCount} item${neededCount === 1 ? '' : 's'} left to find` : grocery.length ? 'Shopping complete — ready for your kitchen' : 'Add items or build a list from a recipe'}</small></div><div role="progressbar" aria-label="Shopping progress" aria-valuemin={0} aria-valuemax={grocery.length} aria-valuenow={checkedCount}><span style={{ width: `${grocery.length ? (checkedCount / grocery.length) * 100 : 0}%` }} /></div></div>
     <div className="grocery-layout"><div className="grocery-list panel">
       <div className="grocery-add"><label>Quick add<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'Add one or several items:\n2 bags spinach\n1 gallon milk\n6 apples'} /></label><button onClick={addManual} disabled={!draft.trim()}><Plus /> Add items</button></div>
       {grocery.length > 0 && <div className="grocery-toolbar"><div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div><small>Items are grouped by aisle automatically</small></div>}
-      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><span>{categoryEmoji[category]}</span><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><div className="grocery-row-actions"><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div></div>)}</section>)}</div>
+      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><span>{categoryEmoji[category]}</span><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div></div>)}</section>)}</div>
       {!grocery.length && <Empty title="Your list is clear" copy="Add several items above or choose an almost-ready recipe." />}
       {grocery.length > 0 && !visible.length && <Empty title={filter === 'checked' ? 'Nothing collected yet' : 'Everything is collected'} copy={filter === 'checked' ? 'Tap an item while shopping to move it here.' : 'Switch to Collected to review your cart.'} />}
-    </div><aside className="grocery-tip"><ShoppingBasket /><h3>Shop in one pass</h3><p>Mise groups your list by aisle and combines compatible quantities from recipes and meal plans.</p><span>Check items off as you shop, then add every purchase to your kitchen in one step.</span></aside></div>
+    </div><StaplesPanel groups={stapleGroups} staples={staples} onAdd={(items) => { setGrocery((current) => mergeGroceryItems(current, groceryFromStaples(items))); notify(`${items.length} staple${items.length === 1 ? '' : 's'} added to your grocery list`) }} onManage={() => setStaplesOpen(true)} /></div>
     {editing && <GroceryItemEditor item={editing.item} onClose={() => setEditing(null)} onSave={saveEditedItem} />}
+    {staplesOpen && <StaplesManager groups={stapleGroups} staples={staples} setGroups={setStapleGroups} setStaples={setStaples} onAddToGrocery={(items) => setGrocery((current) => mergeGroceryItems(current, groceryFromStaples(items)))} onClose={() => setStaplesOpen(false)} notify={notify} />}
   </section>
+}
+
+function StaplesPanel({ groups, staples, onAdd, onManage }: { groups: GroceryStapleGroup[]; staples: GroceryStaple[]; onAdd: (items: GroceryStaple[]) => void; onManage: () => void }) {
+  const orderedGroups = orderedStapleGroups(groups)
+  return <aside className="staples-panel panel"><div className="staples-panel-head"><div><span className="eyebrow">Buy again</span><h3>Your staples</h3></div><button onClick={onManage}><SettingsIcon /> Manage</button></div>{orderedGroups.length ? <div className="staple-group-list">{orderedGroups.map((group) => { const items = orderedStaples(staples, group.id); return <section key={group.id}><header><div><strong>{group.name}</strong><small>{items.length} item{items.length === 1 ? '' : 's'}</small></div>{items.length > 0 && <button onClick={() => onAdd(items)}><Plus /> Add all</button>}</header><div>{items.slice(0, 5).map((item) => <button key={item.id} onClick={() => onAdd([item])}><span>{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><Plus /></button>)}{items.length > 5 && <small className="more-staples">+{items.length - 5} more in Manage</small>}</div></section> })}</div> : <div className="staples-empty"><Bookmark /><strong>Save your weekly essentials</strong><p>Use the bookmark on a grocery item or create a custom staple group.</p><button className="secondary-button" onClick={onManage}>Create staples</button></div>}<div className="staples-tip"><ShoppingBasket /><p>Staples keep their usual quantity and merge safely with items already on your list.</p></div></aside>
+}
+
+function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery, onClose, notify }: {
+  groups: GroceryStapleGroup[]; staples: GroceryStaple[]; setGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
+  setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; onAddToGrocery: (items: GroceryStaple[]) => void; onClose: () => void; notify: (message: string) => void
+}) {
+  const orderedGroups = orderedStapleGroups(groups)
+  const [activeGroupId, setActiveGroupId] = useState(orderedGroups[0]?.id || '')
+  const [groupDraft, setGroupDraft] = useState('')
+  const [stapleDraft, setStapleDraft] = useState('')
+  const resolvedActiveGroupId = groups.some((group) => group.id === activeGroupId) ? activeGroupId : orderedGroups[0]?.id || ''
+  const activeGroup = groups.find((group) => group.id === resolvedActiveGroupId)
+  const activeStaples = activeGroup ? orderedStaples(staples, activeGroup.id) : []
+  function createGroup(event: React.FormEvent) {
+    event.preventDefault()
+    const name = groupDraft.trim()
+    if (!name) return
+    const group = { id: localId('group'), name, sortOrder: groups.length }
+    setGroups((current) => [...current, group]); setActiveGroupId(group.id); setGroupDraft('')
+    notify(`${name} created`)
+  }
+  function addStaples(event: React.FormEvent) {
+    event.preventDefault()
+    if (!activeGroup) return
+    const parsed = groceryItemsFromText(stapleDraft)
+    if (!parsed.length) return
+    setStaples((current) => parsed.reduce((next, item, index) => addOrUpdateStaple(next, {
+      id: `${localId('staple')}-${index}`, groupId: activeGroup.id, name: item.name, amount: item.amount, unit: item.unit,
+      sortOrder: orderedStaples(next, activeGroup.id).length,
+    }), current))
+    setStapleDraft(''); notify(`${parsed.length} staple${parsed.length === 1 ? '' : 's'} saved`)
+  }
+  function removeGroup(group: GroceryStapleGroup) {
+    if (!window.confirm(`Remove “${group.name}” and all of its staples?`)) return
+    const remaining = orderedStapleGroups(groups.filter((entry) => entry.id !== group.id))
+    setActiveGroupId(remaining[0]?.id || '')
+    setGroups((current) => current.filter((entry) => entry.id !== group.id))
+    setStaples((current) => current.filter((entry) => entry.groupId !== group.id))
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal staples-manager" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Reusable grocery lists</span><h2>Manage staples</h2><p>Build household groups with the quantities you usually buy.</p></div><button type="button" onClick={onClose} aria-label="Close staples manager"><X /></button></div><form className="staple-group-create" onSubmit={createGroup}><input value={groupDraft} onChange={(event) => setGroupDraft(event.target.value)} placeholder="New group, e.g. Costco run" aria-label="New staple group name" /><button type="submit" disabled={!groupDraft.trim()}><Plus /> Add group</button></form><div className="staples-manager-layout"><nav>{orderedGroups.map((group, index) => <div className={group.id === resolvedActiveGroupId ? 'active' : ''} key={group.id}><button className="group-select" onClick={() => setActiveGroupId(group.id)}><strong>{group.name}</strong><small>{orderedStaples(staples, group.id).length}</small></button><div><button disabled={index === 0} onClick={() => setGroups((current) => moveStapleGroup(current, group.id, -1))} aria-label={`Move ${group.name} up`}><ArrowUp /></button><button disabled={index === orderedGroups.length - 1} onClick={() => setGroups((current) => moveStapleGroup(current, group.id, 1))} aria-label={`Move ${group.name} down`}><ArrowDown /></button></div></div>)}</nav><div className="staple-editor-area">{activeGroup ? <><div className="staple-group-title"><input value={activeGroup.name} onChange={(event) => setGroups((current) => current.map((group) => group.id === activeGroup.id ? { ...group, name: event.target.value } : group))} aria-label="Staple group name" /><button className="icon-button delete" onClick={() => removeGroup(activeGroup)} aria-label={`Remove ${activeGroup.name} group`}><Trash2 /></button></div><form className="staple-add-form" onSubmit={addStaples}><textarea value={stapleDraft} onChange={(event) => setStapleDraft(event.target.value)} placeholder={'Add one or several staples:\n2 cartons eggs\n1 gallon milk'} aria-label="New staples" /><button type="submit" disabled={!stapleDraft.trim()}><Plus /> Add staples</button></form>{activeStaples.length ? <div className="staple-editor-list">{activeStaples.map((staple, index) => <div key={staple.id}><span>{groceryEmoji(staple)}</span><label>Name<input value={staple.name} onChange={(event) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, name: event.target.value } : item))} /></label><label>Quantity<NumberField min="0.01" step="0.01" value={staple.amount} onValueChange={(amount) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, amount } : item))} /></label><label>Unit<input value={staple.unit} onChange={(event) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, unit: event.target.value } : item))} /></label><div className="staple-row-actions"><button disabled={index === 0} onClick={() => setStaples((current) => moveStaple(current, staple.id, -1))} aria-label={`Move ${staple.name} up`}><ArrowUp /></button><button disabled={index === activeStaples.length - 1} onClick={() => setStaples((current) => moveStaple(current, staple.id, 1))} aria-label={`Move ${staple.name} down`}><ArrowDown /></button><button onClick={() => { onAddToGrocery([staple]); notify(`${staple.name} added to your grocery list`) }} aria-label={`Add ${staple.name} to grocery list`}><ShoppingBasket /></button><button className="delete" onClick={() => setStaples((current) => current.filter((item) => item.id !== staple.id))} aria-label={`Remove ${staple.name} staple`}><Trash2 /></button></div></div>)}</div> : <div className="staples-manager-empty"><Bookmark /><p>Add the foods your household buys regularly.</p></div>} {activeStaples.length > 0 && <button className="submit-button" onClick={() => { onAddToGrocery(activeStaples); notify(`${activeStaples.length} staples added to your grocery list`) }}>Add group to grocery list <ArrowRight /></button>}</> : <div className="staples-manager-empty"><Bookmark /><h3>Create your first group</h3><p>Try Weekly essentials, Breakfast, or Costco run.</p></div>}</div></div></section></div>
 }
 
 function GroceryItemEditor({ item, onClose, onSave }: { item: GroceryItem; onClose: () => void; onSave: (item: GroceryItem) => void }) {

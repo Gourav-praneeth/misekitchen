@@ -240,3 +240,87 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .grocery-row { grid-template-columns: 26px 38px minmax(0, 1fr) 66px; padding: 12px 13px; }
   .grocery-row-actions .icon-button { width: 31px; height: 31px; border-color: #e0e3db; background: #f8f7f2; opacity: 1; }
 }
+
+/* Grocery staples */
+.grocery-row-actions .icon-button.staple { color: #98772f; opacity: .62; }
+.grocery-row-actions .icon-button.staple:hover { opacity: 1; background: #f3ecd8; }
+.staples-panel { height: fit-content; padding: 18px; }
+.staples-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid #e3e5de; }
+.staples-panel-head h3 { margin: 4px 0 0; font-size: 22px; }
+.staples-panel-head > button { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border: 1px solid #d9ddd5; border-radius: 8px; background: #f8f7f2; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
+.staples-panel-head > button svg { width: 12px; }
+.staple-group-list { display: grid; gap: 13px; margin-top: 14px; }
+.staple-group-list > section { overflow: hidden; border: 1px solid #e1e4dc; border-radius: 11px; }
+.staple-group-list header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; background: #f1f3ec; }
+.staple-group-list header strong, .staple-group-list header small { display: block; }
+.staple-group-list header strong { font-size: 10px; }
+.staple-group-list header small { margin-top: 2px; color: #849088; font-size: 7px; }
+.staple-group-list header button { display: flex; align-items: center; gap: 3px; padding: 5px 7px; border: 0; border-radius: 7px; background: #fffefa; color: var(--green); font-size: 7px; font-weight: 800; cursor: pointer; }
+.staple-group-list header button svg { width: 10px; }
+.staple-group-list section > div { display: grid; }
+.staple-group-list section > div > button { display: grid; grid-template-columns: 26px 1fr 13px; align-items: center; gap: 7px; padding: 8px 10px; border: 0; border-top: 1px solid #e8e9e3; background: white; color: var(--ink); text-align: left; cursor: pointer; }
+.staple-group-list section > div > button:hover { background: #f8f8f3; }
+.staple-group-list section > div > button > span { font-size: 16px; }
+.staple-group-list p { margin: 0; }
+.staple-group-list p strong, .staple-group-list p small { display: block; }
+.staple-group-list p strong { font-size: 9px; }
+.staple-group-list p small { margin-top: 2px; color: #879088; font-size: 7px; }
+.staple-group-list section > div > button > svg { width: 11px; color: #6f8876; }
+.more-staples { padding: 7px 10px; color: #849088; font-size: 7px; }
+.staples-empty { display: grid; justify-items: center; padding: 28px 8px 20px; text-align: center; }
+.staples-empty > svg { width: 24px; color: #789080; }
+.staples-empty strong { margin-top: 10px; font-size: 11px; }
+.staples-empty p { margin: 5px 0 13px; color: #849088; font-size: 8px; line-height: 1.5; }
+.staples-empty .secondary-button { width: 100%; }
+.staples-tip { display: flex; align-items: flex-start; gap: 7px; margin-top: 15px; padding-top: 14px; border-top: 1px solid #e3e5de; }
+.staples-tip svg { flex: 0 0 auto; width: 14px; color: #6c8373; }
+.staples-tip p { margin: 0; color: #849087; font-size: 7px; line-height: 1.5; }
+.staples-manager { width: min(920px, 100%); max-height: min(880px, calc(100vh - 40px)); overflow: hidden; }
+.staples-manager .modal-head p { margin: 5px 0 0; color: #7d8880; font-size: 9px; }
+.staple-group-create { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 13px; border-radius: 11px; background: #eef2eb; }
+.staple-group-create input { min-width: 0; }
+.staple-group-create button, .staple-add-form button { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 9px 12px; border: 0; border-radius: 9px; background: var(--green); color: white; font-size: 9px; font-weight: 800; cursor: pointer; }
+.staple-group-create button:disabled, .staple-add-form button:disabled { opacity: .45; cursor: default; }
+.staple-group-create svg, .staple-add-form svg { width: 12px; }
+.staples-manager-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 420px; overflow: hidden; border: 1px solid #e1e3dc; border-radius: 12px; }
+.staples-manager-layout > nav { padding: 8px; overflow-y: auto; border-right: 1px solid #e1e3dc; background: #f2f2eb; }
+.staples-manager-layout > nav > div { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px; margin-bottom: 4px; padding: 4px; border-radius: 8px; }
+.staples-manager-layout > nav > div.active { background: white; box-shadow: 0 2px 7px rgba(45,62,51,.07); }
+.group-select { min-width: 0; padding: 5px; border: 0; background: transparent; color: #53675a; text-align: left; cursor: pointer; }
+.group-select strong, .group-select small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-select strong { font-size: 9px; }.group-select small { margin-top: 2px; color: #8a948c; font-size: 7px; }
+.staples-manager-layout nav > div > div { display: grid; gap: 2px; }
+.staples-manager-layout nav > div > div button, .staple-row-actions button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid #dfe2da; border-radius: 6px; background: #faf9f5; color: #687c6e; cursor: pointer; }
+.staples-manager-layout button:disabled { opacity: .28; cursor: default; }
+.staples-manager-layout nav svg, .staple-row-actions svg { width: 9px; }
+.staple-editor-area { min-width: 0; padding: 14px; overflow-y: auto; }
+.staple-group-title { display: grid; grid-template-columns: 1fr 30px; gap: 7px; margin-bottom: 10px; }
+.staple-group-title input { font: 600 20px 'Fraunces', serif; }
+.staple-add-form { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; margin-bottom: 12px; }
+.staple-add-form textarea { min-height: 58px; padding: 10px 11px; resize: vertical; border: 1px solid #d9ddd5; border-radius: 9px; outline: 0; background: #f8f7f2; color: var(--ink); font: 500 10px/1.4 'DM Sans', sans-serif; }
+.staple-editor-list { display: grid; gap: 6px; margin-bottom: 13px; }
+.staple-editor-list > div { display: grid; grid-template-columns: 29px minmax(120px, 1fr) 76px 78px auto; align-items: end; gap: 7px; padding: 8px; border: 1px solid #e2e4dd; border-radius: 9px; background: #fbfaf6; }
+.staple-editor-list > div > span { align-self: center; font-size: 18px; text-align: center; }
+.staple-editor-list label { display: grid; gap: 4px; color: #718077; font-size: 7px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.staple-editor-list input { min-width: 0; padding: 7px 8px; font-size: 9px; }
+.staple-row-actions { display: grid; grid-template-columns: repeat(2, 22px); gap: 3px; }
+.staple-row-actions .delete { color: #a45a42; }
+.staples-manager-empty { display: grid; align-content: center; justify-items: center; min-height: 230px; text-align: center; }
+.staples-manager-empty svg { width: 28px; color: #839688; }.staples-manager-empty h3 { margin: 10px 0 4px; font-size: 19px; }.staples-manager-empty p { margin: 0; color: #849087; font-size: 9px; }
+@media (max-width: 700px) {
+  .grocery-row { grid-template-columns: 26px 38px minmax(0, 1fr) 99px; }
+  .staples-panel { order: -1; }
+  .staples-manager { max-height: calc(100vh - 20px); padding: 20px 14px; }
+  .staples-manager-layout { grid-template-columns: 1fr; overflow-y: auto; }
+  .staples-manager-layout > nav { display: flex; gap: 5px; padding: 7px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e1e3dc; }
+  .staples-manager-layout > nav > div { flex: 0 0 135px; margin: 0; }
+  .staple-editor-area { overflow: visible; }
+  .staple-editor-list > div { grid-template-columns: 29px 1fr 70px; }
+  .staple-editor-list label:nth-of-type(1) { grid-column: 2 / 4; }
+  .staple-editor-list label:nth-of-type(2) { grid-column: 2; }
+  .staple-editor-list label:nth-of-type(3) { grid-column: 3; }
+  .staple-row-actions { grid-column: 2 / 4; grid-template-columns: repeat(4, 1fr); }
+  .staple-row-actions button { width: 100%; height: 30px; }
+  .staple-group-create, .staple-add-form { grid-template-columns: 1fr; }
+  .staple-group-create input, .staple-add-form textarea, .staple-editor-list input { font-size: 16px; }
+}
