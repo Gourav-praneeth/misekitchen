@@ -38,12 +38,14 @@ export type Recipe = {
 
 export type GroceryItem = RecipeIngredient & { checked: boolean }
 
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
 export type MealPlanEntry = {
   id: string
   date: string
   recipeId: string
   servings: number
-  mealSlot: 'dinner'
+  mealSlot: MealSlot
 }
 
 export type HouseholdSummary = {

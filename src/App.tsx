@@ -13,7 +13,7 @@ import { foodCatalog, getFoodIntelligence } from './foodCatalog'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
-import { addWeeks, groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
+import { addWeeks, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
@@ -25,7 +25,7 @@ import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntr
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealSlot, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
@@ -643,20 +643,22 @@ function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }
   setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; onAddToGrocery: (items: GroceryItem[]) => void
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek())
-  const [pickingDate, setPickingDate] = useState<string | null>(null)
+  const [picking, setPicking] = useState<{ date: string; mealSlot: MealSlot } | null>(null)
+  const [copyingDate, setCopyingDate] = useState<string | null>(null)
   const dates = useMemo(() => weekDates(weekStart), [weekStart])
   const dateKeys = dates.map(localDateKey)
   const weekEntries = entries.filter((entry) => dateKeys.includes(entry.date))
   const groceries = useMemo(() => groceryForMealPlan(weekEntries, recipes, inventory), [weekEntries, recipes, inventory])
   const today = localDateKey(new Date())
   const weekLabel = `${dates[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${dates[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+  const plannedDays = new Set(weekEntries.map((entry) => entry.date)).size
 
-  function chooseRecipe(date: string, recipe: RecipeMatch) {
+  function chooseRecipe(date: string, mealSlot: MealSlot, recipe: RecipeMatch) {
     setEntries((current) => [
-      ...current.filter((entry) => !(entry.date === date && entry.mealSlot === 'dinner')),
-      { id: `dinner-${date}`, date, recipeId: recipe.id, servings: recipe.servings, mealSlot: 'dinner' },
+      ...current.filter((entry) => !(entry.date === date && entry.mealSlot === mealSlot)),
+      { id: mealPlanEntryId(date, mealSlot), date, recipeId: recipe.id, servings: recipe.servings, mealSlot },
     ])
-    setPickingDate(null)
+    setPicking(null)
   }
 
   function changeServings(entry: MealPlanEntry, amount: number) {
@@ -665,29 +667,57 @@ function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }
       : candidate))
   }
 
+  function clearDay(date: string) {
+    if (!window.confirm('Clear every planned meal from this day?')) return
+    setEntries((current) => current.filter((entry) => entry.date !== date))
+  }
+
+  function copyDay(targetDate: string) {
+    if (!copyingDate) return
+    setEntries((current) => copyMealPlanDay(current, copyingDate, targetDate))
+    setCopyingDate(null)
+  }
+
+  function repeatWeek() {
+    setEntries((current) => repeatMealPlanWeek(current, weekStart))
+    setWeekStart((current) => addWeeks(current, 1))
+  }
+
   return <section className="inner-page planner-page">
-    <div className="page-title"><div><span className="eyebrow">Plan with what you have</span><h1>Weekly meal plan</h1><p>Choose dinners for the week, rescue ingredients that need attention, and shop only for what is missing.</p></div>{groceries.length > 0 && <button className="primary-button" onClick={() => onAddToGrocery(groceries)}><ShoppingBasket /> Add {groceries.length} missing item{groceries.length === 1 ? '' : 's'}</button>}</div>
-    <div className="week-toolbar panel"><button onClick={() => setWeekStart((current) => addWeeks(current, -1))} aria-label="Previous week"><ChevronLeft /></button><div><strong>{weekLabel}</strong><small>{weekEntries.length} of 7 dinners planned</small></div><button className="today-button" onClick={() => setWeekStart(startOfWeek())}>This week</button><button onClick={() => setWeekStart((current) => addWeeks(current, 1))} aria-label="Next week"><ChevronRight /></button></div>
+    <div className="page-title"><div><span className="eyebrow">Plan every meal</span><h1>Weekly meal plan</h1><p>Plan breakfast, lunch, dinner, and snacks, then shop only for what your kitchen is missing.</p></div><div className="title-actions">{weekEntries.length > 0 && <button className="secondary-button" onClick={repeatWeek}><RefreshCw /> Repeat next week</button>}{groceries.length > 0 && <button className="primary-button" onClick={() => onAddToGrocery(groceries)}><ShoppingBasket /> Add {groceries.length} missing item{groceries.length === 1 ? '' : 's'}</button>}</div></div>
+    <div className="week-toolbar panel"><button onClick={() => setWeekStart((current) => addWeeks(current, -1))} aria-label="Previous week"><ChevronLeft /></button><div><strong>{weekLabel}</strong><small>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} across {plannedDays} day{plannedDays === 1 ? '' : 's'}</small></div><button className="today-button" onClick={() => setWeekStart(startOfWeek())}>This week</button><button onClick={() => setWeekStart((current) => addWeeks(current, 1))} aria-label="Next week"><ChevronRight /></button></div>
     <div className="week-grid">{dates.map((date) => {
       const dateKey = localDateKey(date)
-      const entry = entries.find((candidate) => candidate.date === dateKey && candidate.mealSlot === 'dinner')
-      const recipe = entry ? recipes.find((candidate) => candidate.id === entry.recipeId) : undefined
+      const dayEntries = entries.filter((candidate) => candidate.date === dateKey)
       return <article className={`day-card panel${dateKey === today ? ' today' : ''}`} key={dateKey}>
-        <div className="day-card-head"><div><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong></div>{dateKey === today && <em>Today</em>}</div>
-        {entry && recipe ? <div className="planned-meal"><div className="planned-meal-art">{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}</div><div className="planned-meal-copy"><small>Dinner</small><h3>{recipe.name}</h3><div>{recipe.urgent > 0 && <span className="use-soon-plan"><Leaf /> Uses {recipe.urgent} soon</span>}<span>{recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}</span></div></div><div className="planned-servings"><span>Servings</span><div><button onClick={() => changeServings(entry, -1)} aria-label={`Decrease servings for ${recipe.name}`}><Minus /></button><strong>{entry.servings}</strong><button onClick={() => changeServings(entry, 1)} aria-label={`Increase servings for ${recipe.name}`}><Plus /></button></div></div><div className="planned-actions"><button onClick={() => setPickingDate(dateKey)}><RefreshCw /> Replace</button><button className="delete" onClick={() => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}><Trash2 /> Remove</button></div></div>
-          : <button className="empty-meal" onClick={() => setPickingDate(dateKey)}><CirclePlus /><strong>Plan dinner</strong><small>Choose from your recipes</small></button>}
+        <div className="day-card-head"><div><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong></div><div className="day-card-head-actions">{dateKey === today && <em>Today</em>}{dayEntries.length > 0 && <><button onClick={() => setCopyingDate(dateKey)} aria-label={`Copy meals from ${dateKey}`} title="Copy this day"><Copy /></button><button className="delete" onClick={() => clearDay(dateKey)} aria-label={`Clear meals from ${dateKey}`} title="Clear this day"><Trash2 /></button></>}</div></div>
+        <div className="day-slots">{mealSlots.map((slot) => {
+          const entry = dayEntries.find((candidate) => candidate.mealSlot === slot.value)
+          const recipe = entry ? recipes.find((candidate) => candidate.id === entry.recipeId) : undefined
+          return entry && recipe ? <div className="planned-slot" key={slot.value}>
+            <button className="planned-slot-main" onClick={() => setPicking({ date: dateKey, mealSlot: slot.value })}><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><small>{slot.label}</small><strong>{recipe.name}</strong><em>{recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}{recipe.urgent ? ` · uses ${recipe.urgent} soon` : ''}</em></p></button>
+            <div className="slot-controls"><button onClick={() => changeServings(entry, -1)} aria-label={`Decrease servings for ${recipe.name}`}><Minus /></button><strong>{entry.servings}</strong><button onClick={() => changeServings(entry, 1)} aria-label={`Increase servings for ${recipe.name}`}><Plus /></button><button className="delete" onClick={() => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))} aria-label={`Remove ${recipe.name} from ${slot.label}`}><X /></button></div>
+          </div> : <button className="empty-slot" key={slot.value} onClick={() => setPicking({ date: dateKey, mealSlot: slot.value })}><span>{slot.emoji}</span><p><strong>{slot.label}</strong><small>Add a recipe</small></p><CirclePlus /></button>
+        })}</div>
       </article>
     })}</div>
-    <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} dinner{weekEntries.length === 1 ? '' : 's'} planned</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
-    {pickingDate && <MealPicker date={pickingDate} recipes={recipes} onClose={() => setPickingDate(null)} onChoose={(recipe) => chooseRecipe(pickingDate, recipe)} />}
+    <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} planned across {plannedDays} day{plannedDays === 1 ? '' : 's'}</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
+    {picking && <MealPicker date={picking.date} mealSlot={picking.mealSlot} recipes={recipes} onClose={() => setPicking(null)} onChoose={(recipe) => chooseRecipe(picking.date, picking.mealSlot, recipe)} />}
+    {copyingDate && <CopyDayPicker sourceDate={copyingDate} dates={dates} onClose={() => setCopyingDate(null)} onCopy={copyDay} />}
   </section>
 }
 
-function MealPicker({ date, recipes, onClose, onChoose }: { date: string; recipes: RecipeMatch[]; onClose: () => void; onChoose: (recipe: RecipeMatch) => void }) {
+function MealPicker({ date, mealSlot, recipes, onClose, onChoose }: { date: string; mealSlot: MealSlot; recipes: RecipeMatch[]; onClose: () => void; onChoose: (recipe: RecipeMatch) => void }) {
   const [query, setQuery] = useState('')
   const matches = recipes.filter((recipe) => normalize(recipe.name).includes(normalize(query)))
   const heading = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal meal-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Dinner for {heading}</span><h2>Choose a recipe</h2></div><button onClick={onClose} aria-label="Close meal picker"><X /></button></div><label className="meal-picker-search"><Search /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search recipes…" /></label><div className="meal-picker-list">{matches.map((recipe) => <button key={recipe.id} onClick={() => onChoose(recipe)}><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Ready now'}{recipe.urgent ? ` · uses ${recipe.urgent} soon` : ''}</small></p><ArrowRight /></button>)}</div>{!matches.length && <Empty title="No matching recipes" copy="Try a different recipe name." />}</section></div>
+  const slotLabel = mealSlots.find((slot) => slot.value === mealSlot)?.label || 'Meal'
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal meal-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{slotLabel} for {heading}</span><h2>Choose a recipe</h2></div><button onClick={onClose} aria-label="Close meal picker"><X /></button></div><label className="meal-picker-search"><Search /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search recipes…" /></label><div className="meal-picker-list">{matches.map((recipe) => <button key={recipe.id} onClick={() => onChoose(recipe)}><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Ready now'}{recipe.urgent ? ` · uses ${recipe.urgent} soon` : ''}</small></p><ArrowRight /></button>)}</div>{!matches.length && <Empty title="No matching recipes" copy="Try a different recipe name." />}</section></div>
+}
+
+function CopyDayPicker({ sourceDate, dates, onClose, onCopy }: { sourceDate: string; dates: Date[]; onClose: () => void; onCopy: (targetDate: string) => void }) {
+  const sourceLabel = new Date(`${sourceDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal copy-day-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Copy {sourceLabel}</span><h2>Choose a day</h2></div><button onClick={onClose} aria-label="Close copy day picker"><X /></button></div><p className="modal-intro">Every meal on the destination day will be replaced with this day’s plan.</p><div className="copy-day-options">{dates.filter((date) => localDateKey(date) !== sourceDate).map((date) => { const key = localDateKey(date); return <button key={key} onClick={() => onCopy(key)}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong><ArrowRight /></button> })}</div></section></div>
 }
 
 function DiscoverRecipes({ inventory, preferences, accessToken, savedExternalIds, onSaveDiscovered, onAddToGrocery }: { inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {

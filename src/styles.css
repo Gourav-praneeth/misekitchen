@@ -155,3 +155,41 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 /* Four-row ingredient icon browser */
 .ingredient-icon-picker > div { grid-auto-rows: 44px; max-height: 212px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .ingredient-icon-picker button { aspect-ratio: auto; min-height: 44px; }
+
+/* Meal Planner 2.0 */
+.planner-page .week-grid { grid-template-columns: repeat(7, minmax(230px, 1fr)); }
+.planner-page .day-card { min-height: 430px; }
+.day-card-head-actions { display: flex; align-items: center; gap: 4px; }
+.day-card-head-actions > button { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border: 1px solid #dce0d8; border-radius: 7px; background: #f7f6f1; color: #64766a; cursor: pointer; }
+.day-card-head-actions > button.delete { color: #a45a42; }
+.day-card-head-actions > button svg { width: 11px; }
+.day-slots { display: grid; gap: 7px; padding: 9px; }
+.empty-slot, .planned-slot { min-height: 77px; border: 1px solid #e1e4dc; border-radius: 11px; background: #faf9f5; }
+.empty-slot { display: grid; grid-template-columns: 31px 1fr 16px; align-items: center; gap: 8px; width: 100%; padding: 10px; color: #637369; text-align: left; cursor: pointer; }
+.empty-slot > span { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: #edf1e9; font-size: 17px; }
+.empty-slot p { margin: 0; }
+.empty-slot strong, .empty-slot small { display: block; }
+.empty-slot strong { font-size: 10px; }
+.empty-slot small { margin-top: 3px; color: #929a93; font-size: 8px; }
+.empty-slot > svg { width: 14px; color: #6f8c78; }
+.planned-slot { display: grid; grid-template-columns: 1fr auto; overflow: hidden; }
+.planned-slot-main { display: grid; grid-template-columns: 35px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; padding: 9px 5px 9px 9px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.planned-slot-main > span { display: grid; place-items: center; width: 35px; height: 35px; overflow: hidden; border-radius: 9px; background: #e8eadf; font-size: 19px; }
+.planned-slot-main img { width: 100%; height: 100%; object-fit: cover; }
+.planned-slot-main p { min-width: 0; margin: 0; }
+.planned-slot-main small, .planned-slot-main strong, .planned-slot-main em { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planned-slot-main small { color: #738178; font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.planned-slot-main strong { margin-top: 3px; font-size: 10px; }
+.planned-slot-main em { margin-top: 3px; color: #839087; font-size: 7px; font-style: normal; }
+.slot-controls { display: grid; grid-template-columns: repeat(2, 22px); align-content: center; justify-content: center; gap: 3px; width: 52px; padding: 6px; border-left: 1px solid #e7e8e1; }
+.slot-controls strong { display: grid; place-items: center; font-size: 8px; }
+.slot-controls button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid #d9ddd5; border-radius: 6px; background: white; color: #526b5b; cursor: pointer; }
+.slot-controls button.delete { color: #a45a42; }
+.slot-controls svg { width: 9px; }
+.copy-day-picker { width: min(500px, 100%); }
+.copy-day-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.copy-day-options button { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; padding: 12px; border: 1px solid #dfe2da; border-radius: 10px; background: #f8f7f2; color: var(--ink); text-align: left; cursor: pointer; }
+.copy-day-options span { color: #748078; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.copy-day-options strong { grid-row: 2; font-size: 11px; }
+.copy-day-options svg { grid-column: 2; grid-row: 1 / 3; width: 13px; color: var(--green); }
+@media (max-width: 700px) { .planner-page .week-grid { grid-template-columns: repeat(7, minmax(280px, 86vw)); }.planner-page .day-card { min-height: 430px; }.planner-page .title-actions { display: grid; grid-template-columns: 1fr; }.copy-day-options { grid-template-columns: 1fr; } }

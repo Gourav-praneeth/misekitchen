@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groceryForMealPlan, localDateKey, startOfWeek, weekDates } from './mealPlanner'
+import { copyMealPlanDay, groceryForMealPlan, localDateKey, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import type { InventoryItem, MealPlanEntry, Recipe } from './types'
 
 const recipe: Recipe = {
@@ -35,5 +35,31 @@ describe('weekly meal planning', () => {
     const entries: MealPlanEntry[] = [{ id: 'oats', date: '2026-10-05', recipeId: 'oats', servings: 2, mealSlot: 'dinner' }]
     const metricMilk: InventoryItem[] = [{ id: 'milk', name: 'Milk', emoji: '🥛', quantity: 100, unit: 'ml', category: 'Dairy', location: 'Fridge', expiresIn: 4 }]
     expect(groceryForMealPlan(entries, [milkRecipe], metricMilk)).toEqual([{ name: 'Milk', amount: 0.08, unit: 'cups', checked: false }])
+  })
+
+  it('copies every meal slot to another day and replaces that day', () => {
+    const entries: MealPlanEntry[] = [
+      { id: 'breakfast-mon', date: '2026-10-05', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'dinner-mon', date: '2026-10-05', recipeId: 'tacos', servings: 2, mealSlot: 'dinner' },
+      { id: 'snack-tue', date: '2026-10-06', recipeId: 'fruit', servings: 1, mealSlot: 'snack' },
+    ]
+    expect(copyMealPlanDay(entries, '2026-10-05', '2026-10-06')).toEqual([
+      entries[0], entries[1],
+      { id: 'breakfast-2026-10-06', date: '2026-10-06', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'dinner-2026-10-06', date: '2026-10-06', recipeId: 'tacos', servings: 2, mealSlot: 'dinner' },
+    ])
+  })
+
+  it('repeats all meal slots into the following week', () => {
+    const entries: MealPlanEntry[] = [
+      { id: 'breakfast-2026-10-05', date: '2026-10-05', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'lunch-2026-10-07', date: '2026-10-07', recipeId: 'salad', servings: 2, mealSlot: 'lunch' },
+      { id: 'old-next-week', date: '2026-10-12', recipeId: 'old', servings: 4, mealSlot: 'dinner' },
+    ]
+    expect(repeatMealPlanWeek(entries, new Date(2026, 9, 5))).toEqual([
+      entries[0], entries[1],
+      { id: 'breakfast-2026-10-12', date: '2026-10-12', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'lunch-2026-10-14', date: '2026-10-14', recipeId: 'salad', servings: 2, mealSlot: 'lunch' },
+    ])
   })
 })

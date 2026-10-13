@@ -1,5 +1,5 @@
 import { normalizeFoodName } from './smartEntry'
-import type { GroceryItem, InventoryItem, MealPlanEntry, Recipe } from './types'
+import type { GroceryItem, InventoryItem, MealPlanEntry, MealSlot, Recipe } from './types'
 import { availableAmount, convertAmount } from './measurements'
 
 export function localDateKey(date: Date) {
@@ -28,6 +28,37 @@ export function addWeeks(date: Date, amount: number) {
   const next = new Date(date)
   next.setDate(next.getDate() + amount * 7)
   return next
+}
+
+export const mealSlots: Array<{ value: MealSlot; label: string; emoji: string }> = [
+  { value: 'breakfast', label: 'Breakfast', emoji: '🍳' },
+  { value: 'lunch', label: 'Lunch', emoji: '🥗' },
+  { value: 'dinner', label: 'Dinner', emoji: '🍽️' },
+  { value: 'snack', label: 'Snack', emoji: '🍎' },
+]
+
+export function mealPlanEntryId(date: string, mealSlot: MealSlot) {
+  return `${mealSlot}-${date}`
+}
+
+export function copyMealPlanDay(entries: MealPlanEntry[], sourceDate: string, targetDate: string) {
+  const source = entries.filter((entry) => entry.date === sourceDate)
+  if (!source.length || sourceDate === targetDate) return entries
+  return [
+    ...entries.filter((entry) => entry.date !== targetDate),
+    ...source.map((entry) => ({ ...entry, id: mealPlanEntryId(targetDate, entry.mealSlot), date: targetDate })),
+  ]
+}
+
+export function repeatMealPlanWeek(entries: MealPlanEntry[], sourceWeekStart: Date) {
+  const sourceDates = weekDates(sourceWeekStart).map(localDateKey)
+  const targetDates = weekDates(addWeeks(sourceWeekStart, 1)).map(localDateKey)
+  const source = entries.filter((entry) => sourceDates.includes(entry.date))
+  const copied = source.map((entry) => {
+    const targetDate = targetDates[sourceDates.indexOf(entry.date)]
+    return { ...entry, id: mealPlanEntryId(targetDate, entry.mealSlot), date: targetDate }
+  })
+  return [...entries.filter((entry) => !targetDates.includes(entry.date)), ...copied]
 }
 
 export function groceryForMealPlan(entries: MealPlanEntry[], recipes: Recipe[], inventory: InventoryItem[]): GroceryItem[] {
