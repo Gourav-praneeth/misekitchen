@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
-import { daysUntilExpiration, expirationDateFromDays } from './freshness'
+import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim()
@@ -232,7 +232,7 @@ export async function saveInventorySnapshot(householdId: string, items: Inventor
     const { error } = await supabase.from('inventory_items').upsert(items.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
       quantity: item.quantity, unit: item.unit, category: item.category, location: item.location,
-      expires_in: daysUntilExpiration(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
+      expires_in: legacyExpirationDaysForStorage(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
     })), { onConflict: 'household_id,id' })
     if (error) throw error
     const quotedIds = items.map((item) => `"${item.id.replaceAll('"', '\\"')}"`).join(',')

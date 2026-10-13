@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { daysUntilDate, expirationDateFromDays, withExpirationDate } from './freshness'
+import { daysUntilDate, expirationDateFromDays, legacyExpirationDaysForStorage, withExpirationDate } from './freshness'
 
 const today = new Date(2026, 9, 6, 15, 30)
 
@@ -20,5 +20,11 @@ describe('calendar freshness', () => {
   it('upgrades legacy inventory without changing shelf-stable food', () => {
     expect(withExpirationDate({ expiresIn: 2, expiresOn: undefined }, today).expiresOn).toBe('2026-10-08')
     expect(withExpirationDate({ expiresIn: null, expiresOn: undefined }, today).expiresOn).toBeUndefined()
+  })
+
+  it('stores expired calendar dates in the legacy field without violating its database constraint', () => {
+    expect(legacyExpirationDaysForStorage({ expiresIn: 2, expiresOn: '2026-10-05' }, today)).toBe(0)
+    expect(legacyExpirationDaysForStorage({ expiresIn: 2, expiresOn: '2026-10-09' }, today)).toBe(3)
+    expect(legacyExpirationDaysForStorage({ expiresIn: null, expiresOn: null }, today)).toBeNull()
   })
 })

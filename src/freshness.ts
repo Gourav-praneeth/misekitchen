@@ -33,6 +33,14 @@ export function daysUntilExpiration(item: Pick<InventoryItem, 'expiresOn' | 'exp
   return daysUntilDate(item.expiresOn, today) ?? item.expiresIn
 }
 
+// `expires_on` is the source of truth and can represent dates in the past. The
+// original database column is retained for backwards compatibility, but its
+// schema only accepts non-negative values.
+export function legacyExpirationDaysForStorage(item: Pick<InventoryItem, 'expiresOn' | 'expiresIn'>, today = new Date()) {
+  const days = daysUntilExpiration(item, today)
+  return days === null ? null : Math.max(0, days)
+}
+
 export function withExpirationDate<T extends Pick<InventoryItem, 'expiresOn' | 'expiresIn'>>(item: T, today = new Date()): T {
   if (item.expiresOn || item.expiresIn === null) return item
   return { ...item, expiresOn: expirationDateFromDays(item.expiresIn, today) }
