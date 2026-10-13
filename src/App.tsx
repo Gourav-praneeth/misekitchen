@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown, ArrowRight, ArrowUp, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
+  ArrowDown, ArrowRight, ArrowUp, BellRing, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
   ExternalLink, House, KeyRound, Leaf, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserPlus, UserRound, UsersRound, WifiOff, X,
 } from 'lucide-react'
@@ -15,6 +15,7 @@ import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
+import { defaultMealReminderPreferences, mealReminderLabel, mealRemindersForToday, normalizeMealReminderPreferences, type MealReminder, type MealReminderPreferences } from './mealReminders'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
@@ -94,6 +95,10 @@ function App() {
   const [foodPreferences, setFoodPreferences] = useState<FoodPreferences>(() => {
     try { return JSON.parse(localStorage.getItem('mise-food-preferences-v1') || '') || emptyFoodPreferences } catch { return emptyFoodPreferences }
   })
+  const [mealReminderPreferences, setMealReminderPreferences] = useState<MealReminderPreferences>(() => {
+    try { return normalizeMealReminderPreferences(JSON.parse(localStorage.getItem('mise-meal-reminders-v1') || 'null')) } catch { return defaultMealReminderPreferences }
+  })
+  const [clock, setClock] = useState(() => new Date())
   const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-meal-plan-v1') || '') || [] } catch { return [] }
   })
@@ -153,6 +158,11 @@ function App() {
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
     return () => { window.removeEventListener('online', online); window.removeEventListener('offline', offline) }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 60_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -263,6 +273,9 @@ function App() {
     if (!session || demoMode) localStorage.setItem('mise-food-preferences-v1', JSON.stringify(foodPreferences))
   }, [foodPreferences, session, demoMode])
   useEffect(() => {
+    localStorage.setItem('mise-meal-reminders-v1', JSON.stringify(mealReminderPreferences))
+  }, [mealReminderPreferences])
+  useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-meal-plan-v1', JSON.stringify(mealPlan))
   }, [mealPlan, session, demoMode])
   useEffect(() => {
@@ -322,6 +335,10 @@ function App() {
   const recipeMatches = useMemo<RecipeMatch[]>(
     () => matchRecipes([...customRecipes, ...recipes.filter((recipe) => !hiddenMiseRecipeIds.includes(recipe.id))], inventory, foodPreferences),
     [customRecipes, hiddenMiseRecipeIds, inventory, foodPreferences],
+  )
+  const todayMealReminders = useMemo(
+    () => mealRemindersForToday(mealPlan, recipeMatches, clock, mealReminderPreferences),
+    [mealPlan, recipeMatches, clock, mealReminderPreferences],
   )
 
   const urgentItems = [...inventory].filter((item) => {
@@ -584,12 +601,12 @@ function App() {
         </header>
 
         <div className="page">
-          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
+          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
-          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
+          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
 
@@ -622,17 +639,23 @@ function NumberField({ value, onValueChange, ...props }: Omit<React.InputHTMLAtt
   }} />
 }
 
-function Home({ displayName, inventory, counts, urgentItems, recipes, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
+function Home({ displayName, inventory, counts, urgentItems, recipes, mealReminders, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
   displayName: string;
   inventory: InventoryItem[]; counts: { category: Category; count: number }[]; urgentItems: InventoryItem[]; recipes: RecipeMatch[];
-  readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
+  mealReminders: MealReminder[]; readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
 }) {
   const best = recipes[0]
+  const activeReminder = mealReminders.find((reminder) => reminder.due)
   return <>
     <section className="welcome">
-      <div><span className="eyebrow">Saturday, your kitchen at a glance</span><h1>{getGreeting()}, {displayName}.</h1><p>Everything looks good. A few ingredients are asking to be used soon.</p></div>
+      <div><span className="eyebrow">{new Date().toLocaleDateString([], { weekday: 'long' })}, your kitchen at a glance</span><h1>{getGreeting()}, {displayName}.</h1><p>Everything looks good. A few ingredients are asking to be used soon.</p></div>
       <div className="fresh-score"><span><Leaf size={18} /></span><div><small>Kitchen freshness</small><strong>86%</strong></div></div>
     </section>
+
+    {mealReminders.length > 0 && <section className={`meal-reminder-panel panel${activeReminder ? ' active' : ''}`}>
+      <div className="meal-reminder-heading"><span><BellRing /></span><div><small>{activeReminder ? 'Coming up' : 'Today’s meal plan'}</small><h2>{activeReminder ? `${activeReminder.recipe.name} ${mealReminderLabel(activeReminder).toLowerCase()}` : `${mealReminders.length} planned meal${mealReminders.length === 1 ? '' : 's'} today`}</h2></div><button className="text-button" onClick={() => setView('planner')}>Open meal plan <ArrowRight /></button></div>
+      <div className="meal-reminder-list">{mealReminders.map((reminder) => <button key={reminder.entry.id} className={reminder === activeReminder ? 'due' : ''} onClick={() => setSelectedRecipe(reminder.recipe as RecipeMatch)}><span>{reminder.recipe.emoji}</span><p><strong>{reminder.recipe.name}</strong><small>{reminder.entry.mealSlot} · {reminder.scheduledAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small></p><em>{mealReminderLabel(reminder)}</em></button>)}</div>
+    </section>}
 
     <section className="status-grid">
       <article className="kitchen-card panel">
@@ -1031,10 +1054,10 @@ function GroceryItemEditor({ item, mode = 'edit', onClose, onSave }: { item: Gro
   return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-editor" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Grocery List 2.0</span><h2>{mode === 'add' ? 'Add grocery item' : 'Edit grocery item'}</h2></div><button type="button" onClick={onClose} aria-label="Close grocery item editor"><X /></button></div><div className="grocery-edit-preview"><span>{groceryEmoji({ name })}</span><p><strong>{name || 'Grocery item'}</strong><small>{groceryCategory({ name })} aisle</small></p></div><label>Item name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Milk" /></label><div className="form-row"><label>Quantity<NumberField min="0.01" step="0.01" value={amount} onValueChange={setAmount} /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} /></label></div><button className="submit-button" type="submit">{mode === 'add' ? 'Add to grocery list' : 'Save changes'} <ArrowRight /></button></form></div>
 }
 
-function SettingsPage({ session, householdId, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
-  session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
+function SettingsPage({ session, householdId, displayName, preferences, reminderPreferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onUpdateReminderPreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
+  session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; reminderPreferences: MealReminderPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
   onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>;
-  onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
+  onUpdateReminderPreferences: React.Dispatch<React.SetStateAction<MealReminderPreferences>>; onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
 }) {
   const [name, setName] = useState(displayName)
   const [preferenceDraft, setPreferenceDraft] = useState(preferences)
@@ -1208,6 +1231,13 @@ function SettingsPage({ session, householdId, displayName, preferences, syncStat
         <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
         <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
         {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> Retry sync</button>}
+      </article>
+      <article className="settings-card reminder-settings-card panel">
+        <div className="settings-card-head"><span className={reminderPreferences.enabled ? 'healthy' : ''}><BellRing /></span><div><h2>Meal reminders</h2><p>See timely prompts for meals you planned today.</p></div></div>
+        <label className="reminder-toggle"><span><strong>In-app reminders</strong><small>Shown on your Overview while Mise is open.</small></span><input type="checkbox" role="switch" checked={reminderPreferences.enabled} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, enabled: event.target.checked }))} /></label>
+        <label>Remind me before<select disabled={!reminderPreferences.enabled} value={reminderPreferences.leadMinutes} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, leadMinutes: Number(event.target.value) }))}><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select></label>
+        <div className="reminder-time-grid">{mealSlots.map((slot) => <label key={slot.value}>{slot.label}<input type="time" disabled={!reminderPreferences.enabled} value={reminderPreferences.times[slot.value]} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, times: { ...current.times, [slot.value]: event.target.value } }))} /></label>)}</div>
+        <p className="reminder-privacy">These times stay on this device. No paid notification or tracking service is used.</p>
       </article>
       <article className="settings-card shared-kitchen-card panel">
         <div className="settings-card-head"><span><UsersRound /></span><div><h2>Shared kitchen</h2><p>Plan, shop, and manage ingredients with the people you live with.</p></div></div>

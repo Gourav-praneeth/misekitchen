@@ -79,6 +79,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Adjustable servings with live ingredient recalculation
 - Meal Planner 2.0 with breakfast, lunch, dinner, and snack slots; week navigation; day copying; next-week repeat; serving controls; use-soon cues; and cloud sync
 - Shared meal-plan templates that save a full week, preserve meal slots and servings, and can be renamed, reused, or deleted
+- Free in-app meal reminders with per-device meal times, configurable lead time, and a mobile-friendly today view on Overview
 - Consolidated meal-plan grocery calculations across every meal slot that subtract kitchen inventory before adding missing items
 - Grocery List 2.0 with multiline quick entry, automatic aisle grouping and icons, collected/to-buy filters, shopping progress, item editing, and one-step purchased-item transfer to the kitchen
 - Household grocery staples with reusable groups, saved quantities, one-tap list building, item/group editing and ordering, duplicate-safe conversion, and cloud synchronization
@@ -93,6 +94,6 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts, lightweight meal reminders, cooking history, and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
+The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts, cooking history, and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.
