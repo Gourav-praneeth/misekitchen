@@ -293,6 +293,39 @@ export async function saveStaplesSnapshot(householdId: string, groups: GrocerySt
   if (deleteStapleError) throw deleteStapleError
 }
 
+type KitchenSnapshot = {
+  inventory: InventoryItem[]
+  grocery: GroceryItem[]
+  stapleGroups: GroceryStapleGroup[]
+  staples: GroceryStaple[]
+  recipes: Recipe[]
+  mealPlan: MealPlanEntry[]
+}
+
+export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot) {
+  const operations = [
+    ['inventory', saveInventorySnapshot(householdId, snapshot.inventory)],
+    ['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery)],
+    ['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)],
+    ['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)],
+    ['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)],
+  ] as const
+  const results = await Promise.allSettled(operations.map(([, operation]) => operation))
+  const failures = results.flatMap((result, index) => result.status === 'rejected'
+    ? [`${operations[index][0]}: ${cloudErrorMessage(result.reason)}`]
+    : [])
+  if (failures.length) throw new Error(`Kitchen sync failed — ${failures.join('; ')}`)
+}
+
+function cloudErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const details = error as Record<string, unknown>
+    return [details.message, details.details, details.hint, details.code].filter(Boolean).join(' · ') || 'Unknown cloud error'
+  }
+  return String(error)
+}
+
 export async function submitFeedback(
   householdId: string,
   userId: string,

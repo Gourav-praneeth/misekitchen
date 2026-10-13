@@ -24,7 +24,7 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveGrocerySnapshot, saveInventorySnapshot, saveMealPlanSnapshot, saveRecipeSnapshot, saveStaplesSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
 import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealSlot, Recipe } from './types'
 
@@ -199,7 +199,7 @@ function App() {
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
           setStaples(starterStaples.current)
-          await Promise.all([saveInventorySnapshot(id, initialInventory), saveGrocerySnapshot(id, starterGrocery.current), saveStaplesSnapshot(id, starterStapleGroups.current, starterStaples.current), saveRecipeSnapshot(id, starterRecipes.current), saveMealPlanSnapshot(id, starterMealPlan.current)])
+          await saveKitchenSnapshot(id, { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current })
           await markHouseholdInitialized(id)
         } else {
           setInventory(cloud.inventory)
@@ -265,7 +265,7 @@ function App() {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
       const result = await reservation.run(async () => {
-        await withRetry(() => Promise.all([saveInventorySnapshot(householdId, inventory), saveGrocerySnapshot(householdId, grocery), saveStaplesSnapshot(householdId, stapleGroups, staples), saveRecipeSnapshot(householdId, customRecipes), saveMealPlanSnapshot(householdId, mealPlan)]))
+        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan }))
       })
       if (!result.latest) return
       if (!result.error) {
@@ -273,7 +273,7 @@ function App() {
         writeStoredKitchen('cache', session.user.id, snapshot)
         setSyncState('saved')
       } else {
-        console.error(result.error)
+        console.error(result.error instanceof Error ? result.error.message : String(result.error))
         setSyncState(navigator.onLine ? 'error' : 'offline')
       }
     }, retryToken ? 50 : 450)
