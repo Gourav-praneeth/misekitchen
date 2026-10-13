@@ -219,8 +219,14 @@ function App() {
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
           writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
-        setCloudReady(true)
-        setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
+        // Enable outbound sync on the next task so every hydrated collection has
+        // rendered before the snapshot effect can run. Without this boundary, a
+        // newly introduced collection can briefly save its empty initial state.
+        window.setTimeout(() => {
+          if (!active) return
+          setCloudReady(true)
+          setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
+        }, 0)
       } catch (error) {
         console.error(error)
         if (active) setSyncState(navigator.onLine ? 'error' : 'offline')
