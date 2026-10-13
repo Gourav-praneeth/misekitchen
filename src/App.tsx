@@ -14,7 +14,7 @@ import { addOrUpdateStaple, groceryFromStaples, moveStaple, moveStapleGroup, ord
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
-import { addWeeks, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
+import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
@@ -26,14 +26,14 @@ import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntr
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealSlot, Recipe } from './types'
+import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -97,6 +97,9 @@ function App() {
   const [mealPlan, setMealPlan] = useState<MealPlanEntry[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-meal-plan-v1') || '') || [] } catch { return [] }
   })
+  const [mealPlanTemplates, setMealPlanTemplates] = useState<MealPlanTemplate[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-meal-plan-templates-v1') || '') || [] } catch { return [] }
+  })
   const [hiddenMiseRecipeIds, setHiddenMiseRecipeIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-hidden-recipes-v1') || '') || [] } catch { return [] }
   })
@@ -124,6 +127,7 @@ function App() {
   const starterStaples = useRef(staples)
   const starterRecipes = useRef(customRecipes)
   const starterMealPlan = useRef(mealPlan)
+  const starterMealPlanTemplates = useRef(mealPlanTemplates)
   const saveQueue = useRef(createLatestSaveQueue())
 
   useEffect(() => {
@@ -170,6 +174,7 @@ function App() {
             setStaples(localKitchen.staples || [])
             setCustomRecipes(localKitchen.recipes || [])
             setMealPlan(localKitchen.mealPlan || [])
+            setMealPlanTemplates(localKitchen.mealPlanTemplates || [])
             setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
             setCloudReady(true)
           }
@@ -190,16 +195,18 @@ function App() {
           setStaples(pending.staples || [])
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
+          setMealPlanTemplates(pending.mealPlanTemplates || [])
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
           setInventory(initialInventory)
           setCustomRecipes(starterRecipes.current)
           setMealPlan(starterMealPlan.current)
+          setMealPlanTemplates(starterMealPlanTemplates.current)
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
           setStaples(starterStaples.current)
-          await saveKitchenSnapshot(id, { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current })
+          await saveKitchenSnapshot(id, { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current, mealPlanTemplates: starterMealPlanTemplates.current })
           await markHouseholdInitialized(id)
         } else {
           setInventory(cloud.inventory)
@@ -208,8 +215,9 @@ function App() {
           setStaples(cloud.staples)
           setCustomRecipes(cloud.recipes)
           setMealPlan(cloud.mealPlan)
+          setMealPlanTemplates(cloud.mealPlanTemplates)
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
         setCloudReady(true)
         setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
@@ -244,6 +252,9 @@ function App() {
     if (!session || demoMode) localStorage.setItem('mise-meal-plan-v1', JSON.stringify(mealPlan))
   }, [mealPlan, session, demoMode])
   useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-meal-plan-templates-v1', JSON.stringify(mealPlanTemplates))
+  }, [mealPlanTemplates, session, demoMode])
+  useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-hidden-recipes-v1', JSON.stringify(hiddenMiseRecipeIds))
   }, [hiddenMiseRecipeIds, session, demoMode])
 
@@ -259,13 +270,13 @@ function App() {
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
     const reservation = saveQueue.current.reserve()
-    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
       const result = await reservation.run(async () => {
-        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan }))
+        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates }))
       })
       if (!result.latest) return
       if (!result.error) {
@@ -278,7 +289,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -550,7 +561,7 @@ function App() {
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
-          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} setEntries={setMealPlan} onAddToGrocery={addToGrocery} />}
+          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={setMealPlanTemplates} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
@@ -666,13 +677,15 @@ function Recipes({ recipes, inventory, preferences, accessToken, savedExternalId
   </section>
 }
 
-function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }: {
-  recipes: RecipeMatch[]; inventory: InventoryItem[]; entries: MealPlanEntry[];
-  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; onAddToGrocery: (items: GroceryItem[]) => void
+function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTemplates, onAddToGrocery, notify }: {
+  recipes: RecipeMatch[]; inventory: InventoryItem[]; entries: MealPlanEntry[]; templates: MealPlanTemplate[];
+  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>;
+  onAddToGrocery: (items: GroceryItem[]) => void; notify: (message: string) => void
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek())
   const [picking, setPicking] = useState<{ date: string; mealSlot: MealSlot } | null>(null)
   const [copyingDate, setCopyingDate] = useState<string | null>(null)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const dates = useMemo(() => weekDates(weekStart), [weekStart])
   const dateKeys = dates.map(localDateKey)
   const weekEntries = entries.filter((entry) => dateKeys.includes(entry.date))
@@ -712,7 +725,7 @@ function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }
   }
 
   return <section className="inner-page planner-page">
-    <div className="page-title"><div><span className="eyebrow">Plan every meal</span><h1>Weekly meal plan</h1><p>Plan breakfast, lunch, dinner, and snacks, then shop only for what your kitchen is missing.</p></div><div className="title-actions">{weekEntries.length > 0 && <button className="secondary-button" onClick={repeatWeek}><RefreshCw /> Repeat next week</button>}{groceries.length > 0 && <button className="primary-button" onClick={() => onAddToGrocery(groceries)}><ShoppingBasket /> Add {groceries.length} missing item{groceries.length === 1 ? '' : 's'}</button>}</div></div>
+    <div className="page-title"><div><span className="eyebrow">Plan every meal</span><h1>Weekly meal plan</h1><p>Plan breakfast, lunch, dinner, and snacks, then shop only for what your kitchen is missing.</p></div><div className="title-actions"><button className="secondary-button" onClick={() => setTemplatesOpen(true)}><Bookmark /> Templates{templates.length ? ` (${templates.length})` : ''}</button>{weekEntries.length > 0 && <button className="secondary-button" onClick={repeatWeek}><RefreshCw /> Repeat next week</button>}{groceries.length > 0 && <button className="primary-button" onClick={() => onAddToGrocery(groceries)}><ShoppingBasket /> Add {groceries.length} missing item{groceries.length === 1 ? '' : 's'}</button>}</div></div>
     <div className="week-toolbar panel"><button onClick={() => setWeekStart((current) => addWeeks(current, -1))} aria-label="Previous week"><ChevronLeft /></button><div><strong>{weekLabel}</strong><small>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} across {plannedDays} day{plannedDays === 1 ? '' : 's'}</small></div><button className="today-button" onClick={() => setWeekStart(startOfWeek())}>This week</button><button onClick={() => setWeekStart((current) => addWeeks(current, 1))} aria-label="Next week"><ChevronRight /></button></div>
     <div className="week-grid">{dates.map((date) => {
       const dateKey = localDateKey(date)
@@ -732,6 +745,7 @@ function MealPlanner({ recipes, inventory, entries, setEntries, onAddToGrocery }
     <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} planned across {plannedDays} day{plannedDays === 1 ? '' : 's'}</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
     {picking && <MealPicker date={picking.date} mealSlot={picking.mealSlot} recipes={recipes} onClose={() => setPicking(null)} onChoose={(recipe) => chooseRecipe(picking.date, picking.mealSlot, recipe)} />}
     {copyingDate && <CopyDayPicker sourceDate={copyingDate} dates={dates} onClose={() => setCopyingDate(null)} onCopy={copyDay} />}
+    {templatesOpen && <MealPlanTemplateManager templates={templates} weekEntries={weekEntries} weekStart={weekStart} recipes={recipes} setEntries={setEntries} setTemplates={setTemplates} onClose={() => setTemplatesOpen(false)} notify={notify} />}
   </section>
 }
 
@@ -746,6 +760,54 @@ function MealPicker({ date, mealSlot, recipes, onClose, onChoose }: { date: stri
 function CopyDayPicker({ sourceDate, dates, onClose, onCopy }: { sourceDate: string; dates: Date[]; onClose: () => void; onCopy: (targetDate: string) => void }) {
   const sourceLabel = new Date(`${sourceDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal copy-day-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Copy {sourceLabel}</span><h2>Choose a day</h2></div><button onClick={onClose} aria-label="Close copy day picker"><X /></button></div><p className="modal-intro">Every meal on the destination day will be replaced with this day’s plan.</p><div className="copy-day-options">{dates.filter((date) => localDateKey(date) !== sourceDate).map((date) => { const key = localDateKey(date); return <button key={key} onClick={() => onCopy(key)}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong><ArrowRight /></button> })}</div></section></div>
+}
+
+function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, setEntries, setTemplates, onClose, notify }: {
+  templates: MealPlanTemplate[]; weekEntries: MealPlanEntry[]; weekStart: Date; recipes: RecipeMatch[];
+  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>;
+  onClose: () => void; notify: (message: string) => void
+}) {
+  const [name, setName] = useState('')
+  const recipeIds = new Set(recipes.map((recipe) => recipe.id))
+
+  function saveCurrentWeek(event: React.FormEvent) {
+    event.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed || !weekEntries.length) return
+    const template = mealPlanTemplateFromWeek(localId('meal-template'), trimmed, weekEntries, weekStart)
+    setTemplates((current) => [template, ...current])
+    setName('')
+    notify(`${template.name} saved as a meal plan template`)
+  }
+
+  function applyTemplate(template: MealPlanTemplate) {
+    const availableEntries = template.entries.filter((entry) => recipeIds.has(entry.recipeId))
+    if (!availableEntries.length) { notify('The recipes in this template are no longer available'); return }
+    if (weekEntries.length && !window.confirm(`Replace this week with “${template.name}”?`)) return
+    setEntries((current) => applyMealPlanTemplate(current, { ...template, entries: availableEntries }, weekStart))
+    onClose()
+    const skipped = template.entries.length - availableEntries.length
+    notify(`${template.name} applied${skipped ? ` · ${skipped} unavailable recipe${skipped === 1 ? '' : 's'} skipped` : ''}`)
+  }
+
+  function removeTemplate(template: MealPlanTemplate) {
+    if (!window.confirm(`Delete “${template.name}”?`)) return
+    setTemplates((current) => current.filter((candidate) => candidate.id !== template.id))
+    notify(`${template.name} deleted`)
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal meal-template-manager" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Reusable weeks</span><h2>Meal plan templates</h2><p>Save this week once, then reuse it whenever life gets busy.</p></div><button onClick={onClose} aria-label="Close meal plan templates"><X /></button></div><form className="meal-template-create" onSubmit={saveCurrentWeek}><label>Template name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Family favorites" /></label><button type="submit" disabled={!name.trim() || !weekEntries.length}><BookmarkCheck /> Save this week</button></form>{!weekEntries.length && <p className="template-hint">Add at least one meal to this week before saving it as a template.</p>}<div className="meal-template-list">{templates.map((template) => { const unavailable = template.entries.filter((entry) => !recipeIds.has(entry.recipeId)).length; const days = new Set(template.entries.map((entry) => entry.dayOffset)).size; return <article key={template.id}><div className="template-name"><MealTemplateName template={template} onRename={(nextName) => setTemplates((current) => current.map((candidate) => candidate.id === template.id ? { ...candidate, name: nextName } : candidate))} /><small>{template.entries.length} meal{template.entries.length === 1 ? '' : 's'} across {days} day{days === 1 ? '' : 's'}{unavailable ? ` · ${unavailable} unavailable` : ''}</small></div><div className="template-actions"><button onClick={() => applyTemplate(template)} disabled={template.entries.length === unavailable}><CalendarDays /> Use this week</button><button className="delete" onClick={() => removeTemplate(template)} aria-label={`Delete ${template.name}`}><Trash2 /></button></div></article> })}</div>{!templates.length && <div className="template-empty"><CalendarDays /><strong>No templates yet</strong><p>Plan a week, give it a name above, and save it for later.</p></div>}</section></div>
+}
+
+function MealTemplateName({ template, onRename }: { template: MealPlanTemplate; onRename: (name: string) => void }) {
+  const [draft, setDraft] = useState(template.name)
+  function commit() {
+    const nextName = draft.trim()
+    if (!nextName) { setDraft(template.name); return }
+    setDraft(nextName)
+    if (nextName !== template.name) onRename(nextName)
+  }
+  return <input value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} aria-label={`Name for ${template.name}`} />
 }
 
 function DiscoverRecipes({ inventory, preferences, accessToken, savedExternalIds, onSaveDiscovered, onAddToGrocery }: { inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {

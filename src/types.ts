@@ -60,6 +60,19 @@ export type MealPlanEntry = {
   mealSlot: MealSlot
 }
 
+export type MealPlanTemplateEntry = {
+  dayOffset: number
+  recipeId: string
+  servings: number
+  mealSlot: MealSlot
+}
+
+export type MealPlanTemplate = {
+  id: string
+  name: string
+  entries: MealPlanTemplateEntry[]
+}
+
 export type HouseholdSummary = {
   id: string
   name: string

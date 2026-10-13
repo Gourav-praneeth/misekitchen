@@ -1,5 +1,5 @@
 import { normalizeFoodName } from './smartEntry'
-import type { GroceryItem, InventoryItem, MealPlanEntry, MealSlot, Recipe } from './types'
+import type { GroceryItem, InventoryItem, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 import { availableAmount, convertAmount } from './measurements'
 
 export function localDateKey(date: Date) {
@@ -59,6 +59,28 @@ export function repeatMealPlanWeek(entries: MealPlanEntry[], sourceWeekStart: Da
     return { ...entry, id: mealPlanEntryId(targetDate, entry.mealSlot), date: targetDate }
   })
   return [...entries.filter((entry) => !targetDates.includes(entry.date)), ...copied]
+}
+
+export function mealPlanTemplateFromWeek(id: string, name: string, entries: MealPlanEntry[], sourceWeekStart: Date): MealPlanTemplate {
+  const sourceDates = weekDates(sourceWeekStart).map(localDateKey)
+  return {
+    id,
+    name: name.trim(),
+    entries: entries.flatMap((entry) => {
+      const dayOffset = sourceDates.indexOf(entry.date)
+      return dayOffset < 0 ? [] : [{ dayOffset, recipeId: entry.recipeId, servings: entry.servings, mealSlot: entry.mealSlot }]
+    }),
+  }
+}
+
+export function applyMealPlanTemplate(entries: MealPlanEntry[], template: MealPlanTemplate, targetWeekStart: Date) {
+  const targetDates = weekDates(targetWeekStart).map(localDateKey)
+  const replacements = template.entries.flatMap((entry) => {
+    const date = targetDates[entry.dayOffset]
+    if (!date) return []
+    return [{ id: mealPlanEntryId(date, entry.mealSlot), date, recipeId: entry.recipeId, servings: entry.servings, mealSlot: entry.mealSlot }]
+  })
+  return [...entries.filter((entry) => !targetDates.includes(entry.date)), ...replacements]
 }
 
 export function groceryForMealPlan(entries: MealPlanEntry[], recipes: Recipe[], inventory: InventoryItem[]): GroceryItem[] {

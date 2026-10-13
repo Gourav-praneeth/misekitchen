@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { copyMealPlanDay, groceryForMealPlan, localDateKey, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
+import { applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanTemplateFromWeek, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import type { InventoryItem, MealPlanEntry, Recipe } from './types'
 
 const recipe: Recipe = {
@@ -60,6 +60,38 @@ describe('weekly meal planning', () => {
       entries[0], entries[1],
       { id: 'breakfast-2026-10-12', date: '2026-10-12', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
       { id: 'lunch-2026-10-14', date: '2026-10-14', recipeId: 'salad', servings: 2, mealSlot: 'lunch' },
+    ])
+  })
+
+  it('saves a week as a reusable relative template', () => {
+    const entries: MealPlanEntry[] = [
+      { id: 'breakfast-2026-10-05', date: '2026-10-05', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'dinner-2026-10-07', date: '2026-10-07', recipeId: 'tacos', servings: 4, mealSlot: 'dinner' },
+      { id: 'outside', date: '2026-10-12', recipeId: 'salad', servings: 2, mealSlot: 'lunch' },
+    ]
+    expect(mealPlanTemplateFromWeek('family', ' Family week ', entries, new Date(2026, 9, 5))).toEqual({
+      id: 'family', name: 'Family week', entries: [
+        { dayOffset: 0, recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+        { dayOffset: 2, recipeId: 'tacos', servings: 4, mealSlot: 'dinner' },
+      ],
+    })
+  })
+
+  it('applies a template to another week and replaces that week', () => {
+    const template = {
+      id: 'family', name: 'Family week', entries: [
+        { dayOffset: 0, recipeId: 'oats', servings: 1, mealSlot: 'breakfast' as const },
+        { dayOffset: 2, recipeId: 'tacos', servings: 4, mealSlot: 'dinner' as const },
+      ],
+    }
+    const entries: MealPlanEntry[] = [
+      { id: 'keep', date: '2026-10-05', recipeId: 'salad', servings: 2, mealSlot: 'lunch' },
+      { id: 'replace', date: '2026-10-13', recipeId: 'old', servings: 2, mealSlot: 'dinner' },
+    ]
+    expect(applyMealPlanTemplate(entries, template, new Date(2026, 9, 12))).toEqual([
+      entries[0],
+      { id: 'breakfast-2026-10-12', date: '2026-10-12', recipeId: 'oats', servings: 1, mealSlot: 'breakfast' },
+      { id: 'dinner-2026-10-14', date: '2026-10-14', recipeId: 'tacos', servings: 4, mealSlot: 'dinner' },
     ])
   })
 })

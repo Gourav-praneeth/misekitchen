@@ -193,7 +193,27 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .copy-day-options span { color: #748078; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .copy-day-options strong { grid-row: 2; font-size: 11px; }
 .copy-day-options svg { grid-column: 2; grid-row: 1 / 3; width: 13px; color: var(--green); }
-@media (max-width: 700px) { .planner-page .week-grid { grid-template-columns: repeat(7, minmax(280px, 86vw)); }.planner-page .day-card { min-height: 430px; }.planner-page .title-actions { display: grid; grid-template-columns: 1fr; }.copy-day-options { grid-template-columns: 1fr; } }
+.meal-template-manager { width: min(650px, 100%); }
+.modal-head p { max-width: 440px; margin: 6px 0 0; color: #7d8880; font-size: 10px; line-height: 1.45; }
+.meal-template-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 9px; padding: 13px; border-radius: 12px; background: #edf2e9; }
+.meal-template-create label { margin: 0; }
+.meal-template-create button, .template-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 39px; padding: 9px 12px; border: 1px solid #b8cab9; border-radius: 9px; background: var(--green); color: white; font-size: 9px; font-weight: 800; cursor: pointer; }
+.meal-template-create button:disabled, .template-actions button:disabled { opacity: .45; cursor: default; }
+.meal-template-create svg, .template-actions svg { width: 13px; }
+.template-hint { margin: 8px 2px 0; color: #8a938c; font-size: 8px; }
+.meal-template-list { display: grid; gap: 8px; margin-top: 16px; }
+.meal-template-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px; border: 1px solid #dfe2da; border-radius: 11px; background: #faf9f5; }
+.template-name input { width: 100%; padding: 6px 7px; border: 1px solid transparent; border-radius: 7px; outline: 0; background: transparent; color: var(--ink); font-size: 11px; font-weight: 800; }
+.template-name input:hover, .template-name input:focus { border-color: #d7ddd4; background: white; }
+.template-name small { display: block; margin: 3px 7px 0; color: #879087; font-size: 8px; }
+.template-actions { display: flex; align-items: center; gap: 5px; }
+.template-actions button { min-height: 34px; padding: 7px 9px; background: #e8efe5; color: var(--green); }
+.template-actions button.delete { width: 34px; padding: 0; border-color: #ead6ce; background: #f6eae5; color: #a45a42; }
+.template-empty { display: grid; justify-items: center; padding: 34px 16px 18px; color: #829087; text-align: center; }
+.template-empty svg { width: 27px; }
+.template-empty strong { margin-top: 8px; color: #53675a; font-size: 11px; }
+.template-empty p { margin: 4px 0 0; font-size: 9px; }
+@media (max-width: 700px) { .planner-page .week-grid { grid-template-columns: repeat(7, minmax(280px, 86vw)); }.planner-page .day-card { min-height: 430px; }.planner-page .title-actions { display: grid; grid-template-columns: 1fr; }.copy-day-options { grid-template-columns: 1fr; }.meal-template-create, .meal-template-list article { grid-template-columns: 1fr; }.meal-template-create button { width: 100%; }.template-actions button:first-child { flex: 1; } }
 
 /* Grocery List 2.0 */
 .grocery-progress { display: grid; gap: 11px; margin-bottom: 18px; padding: 17px 20px; }

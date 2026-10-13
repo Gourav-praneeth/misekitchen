@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, Recipe, RecipeIngredient } from './types'
+import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -132,14 +132,15 @@ export async function saveFoodPreferences(userId: string, preferences: FoodPrefe
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], hiddenMiseRecipeIds: [], initialized: false }
-  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, householdResult] = await Promise.all([
+  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [], hiddenMiseRecipeIds: [], initialized: false }
+  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, templateResult, householdResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_staple_groups').select('*').eq('household_id', householdId).order('sort_order'),
     supabase.from('grocery_staples').select('*').eq('household_id', householdId).order('sort_order'),
     supabase.from('household_recipes').select('*').eq('household_id', householdId).order('name'),
     supabase.from('meal_plan_entries').select('*').eq('household_id', householdId).order('plan_date'),
+    supabase.from('meal_plan_templates').select('*').eq('household_id', householdId).order('updated_at', { ascending: false }),
     supabase.from('households').select('initialized,hidden_mise_recipe_ids').eq('id', householdId).single(),
   ])
   if (inventoryResult.error) throw inventoryResult.error
@@ -148,6 +149,7 @@ export async function loadCloudKitchen(householdId: string) {
   if (stapleResult.error) throw stapleResult.error
   if (recipeResult.error) throw recipeResult.error
   if (mealPlanResult.error) throw mealPlanResult.error
+  if (templateResult.error) throw templateResult.error
   if (householdResult.error) throw householdResult.error
   return {
     inventory: (inventoryResult.data || []).map((row) => ({
@@ -175,6 +177,9 @@ export async function loadCloudKitchen(householdId: string) {
       id: row.id, date: row.plan_date, recipeId: row.recipe_id,
       servings: Number(row.servings), mealSlot: row.meal_slot,
     })) as MealPlanEntry[],
+    mealPlanTemplates: (templateResult.data || []).map((row) => ({
+      id: row.id, name: row.name, entries: row.entries,
+    })) as MealPlanTemplate[],
     hiddenMiseRecipeIds: (householdResult.data.hidden_mise_recipe_ids || []) as string[],
     initialized: Boolean(householdResult.data.initialized),
   }
@@ -194,6 +199,23 @@ export async function saveMealPlanSnapshot(householdId: string, entries: MealPla
     if (deleteError) throw deleteError
   } else {
     const { error } = await supabase.from('meal_plan_entries').delete().eq('household_id', householdId)
+    if (error) throw error
+  }
+}
+
+export async function saveMealPlanTemplateSnapshot(householdId: string, templates: MealPlanTemplate[]) {
+  if (!supabase) return
+  const rows = templates.map((template) => ({
+    household_id: householdId, id: template.id, name: template.name, entries: template.entries,
+  }))
+  if (rows.length) {
+    const { error } = await supabase.from('meal_plan_templates').upsert(rows, { onConflict: 'household_id,id' })
+    if (error) throw error
+    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
+    const { error: deleteError } = await supabase.from('meal_plan_templates').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
+    if (deleteError) throw deleteError
+  } else {
+    const { error } = await supabase.from('meal_plan_templates').delete().eq('household_id', householdId)
     if (error) throw error
   }
 }
@@ -300,6 +322,7 @@ type KitchenSnapshot = {
   staples: GroceryStaple[]
   recipes: Recipe[]
   mealPlan: MealPlanEntry[]
+  mealPlanTemplates: MealPlanTemplate[]
 }
 
 export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot) {
@@ -309,6 +332,7 @@ export async function saveKitchenSnapshot(householdId: string, snapshot: Kitchen
     ['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)],
     ['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)],
     ['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)],
+    ['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)],
   ] as const
   const results = await Promise.allSettled(operations.map(([, operation]) => operation))
   const failures = results.flatMap((result, index) => result.status === 'rejected'
