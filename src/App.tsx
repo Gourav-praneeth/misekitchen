@@ -191,14 +191,17 @@ function App() {
         setHouseholdId(id)
         const pending = readStoredKitchen('pending', session!.user.id)
         if (pending?.householdId === id) {
+          const pendingTemplates = pending.mealPlanTemplates || []
+          const pendingTemplateIds = new Set(pendingTemplates.map((template) => template.id))
+          const mergedTemplates = [...pendingTemplates, ...cloud.mealPlanTemplates.filter((template) => !pendingTemplateIds.has(template.id))]
           setInventory(pending.inventory.map((item) => withExpirationDate(item)))
           setGrocery(pending.grocery)
           setStapleGroups(pending.stapleGroups || [])
           setStaples(pending.staples || [])
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
-          setMealPlanTemplates(pending.mealPlanTemplates || [])
-          mealPlanTemplatesDirty.current = true
+          setMealPlanTemplates(mergedTemplates)
+          mealPlanTemplatesDirty.current = pendingTemplates.length > 0
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
