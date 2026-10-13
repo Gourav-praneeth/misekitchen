@@ -1,7 +1,7 @@
 import { expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
 import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
-import type { GroceryItem, InventoryItem } from './types'
+import type { Category, GroceryItem, InventoryItem } from './types'
 import { convertAmount } from './measurements'
 
 const genericUnits = new Set(['item', 'items'])
@@ -52,6 +52,19 @@ export function groceryItemFromText(value: string): GroceryItem | null {
   const parsed = parseSmartEntry(value)[0]
   if (!parsed) return null
   return { name: parsed.name, amount: parsed.quantity, unit: parsed.unit, checked: false }
+}
+
+export function groceryItemsFromText(value: string): GroceryItem[] {
+  return parseSmartEntry(value).map((item) => ({
+    name: item.name,
+    amount: item.quantity,
+    unit: item.unit,
+    checked: false,
+  }))
+}
+
+export function groceryCategory(item: Pick<GroceryItem, 'name'>): Category {
+  return getFoodIntelligence(item.name)?.profile.category || 'Other'
 }
 
 export function groceryEmoji(item: Pick<GroceryItem, 'name'>) {

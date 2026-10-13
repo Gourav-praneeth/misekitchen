@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
+import { groceryCategory, groceryEmoji, groceryItemFromText, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { recipes } from './data'
 import { matchRecipes } from './recipeIntelligence'
 import type { InventoryItem } from './types'
@@ -29,6 +29,20 @@ describe('duplicate-safe inventory intelligence', () => {
     const item = groceryItemFromText('2 bags baby spinach')
     expect(item).toMatchObject({ name: 'Baby Spinach', amount: 2, unit: 'bags' })
     expect(groceryEmoji(item!)).toBe('🥬')
+  })
+
+  it('bulk parses a multiline shopping note', () => {
+    expect(groceryItemsFromText('2 bags baby spinach\n1 gallon milk\n6 apples')).toMatchObject([
+      { name: 'Baby Spinach', amount: 2, unit: 'bags', checked: false },
+      { name: 'Milk', amount: 1, unit: 'gallon', checked: false },
+      { name: 'Apples', amount: 6, checked: false },
+    ])
+  })
+
+  it('organizes recognized groceries into shopping sections', () => {
+    expect(groceryCategory({ name: 'baby spinach' })).toBe('Produce')
+    expect(groceryCategory({ name: 'Greek yogurt' })).toBe('Dairy')
+    expect(groceryCategory({ name: 'unknown specialty item' })).toBe('Other')
   })
 
   it('deduplicates grocery entries using catalog identities', () => {

@@ -11,7 +11,7 @@ import { expirationWarning, suggestedExpirationDate, type FreshnessState } from 
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
-import { groceryEmoji, groceryItemFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
+import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
@@ -787,10 +787,17 @@ function ExternalRecipeSheet({ preview, details, loading, isSaved, onClose, onSa
 
 function Grocery({ grocery, inventory, setGrocery, setInventory, notify }: { grocery: GroceryItem[]; inventory: InventoryItem[]; setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; notify: (message: string) => void }) {
   const [draft, setDraft] = useState('')
+  const [filter, setFilter] = useState<'all' | 'needed' | 'checked'>('all')
+  const [editing, setEditing] = useState<{ index: number; item: GroceryItem } | null>(null)
+  const checkedCount = grocery.filter((item) => item.checked).length
+  const neededCount = grocery.length - checkedCount
+  const visible = grocery.map((item, index) => ({ item, index })).filter(({ item }) => filter === 'all' || (filter === 'checked' ? item.checked : !item.checked))
+  const sections = categories.map((category) => ({ category, entries: visible.filter(({ item }) => groceryCategory(item) === category) })).filter((section) => section.entries.length)
   function addManual() {
-    const item = groceryItemFromText(draft)
-    if (!item) return
-    setGrocery((items) => mergeGroceryItems(items, [item])); setDraft('')
+    const items = groceryItemsFromText(draft)
+    if (!items.length) return
+    setGrocery((current) => mergeGroceryItems(current, items)); setDraft('')
+    notify(`${items.length} grocery item${items.length === 1 ? '' : 's'} added`)
   }
   function moveCheckedToKitchen() {
     const bought = grocery.filter((item) => item.checked)
@@ -802,10 +809,35 @@ function Grocery({ grocery, inventory, setGrocery, setInventory, notify }: { gro
     const summary = [result.added ? `${result.added} added` : '', result.merged ? `${result.merged} merged` : ''].filter(Boolean).join(', ')
     notify(`${summary} in your kitchen`)
   }
+  function saveEditedItem(next: GroceryItem) {
+    setGrocery((items) => mergeGroceryItems(items.filter((_, index) => index !== editing!.index), [next]))
+    setEditing(null)
+    notify(`${next.name} updated`)
+  }
   return <section className="inner-page">
-    <div className="page-title"><div><span className="eyebrow">Only what you need</span><h1>Grocery list</h1><p>Missing recipe ingredients land here. When you buy them, send them straight to your kitchen.</p></div>{grocery.some((item) => item.checked) && <button className="primary-button" onClick={moveCheckedToKitchen}><PackageOpen size={18} /> Add purchased to kitchen</button>}</div>
-    <div className="grocery-layout"><div className="grocery-list panel"><div className="quick-add"><input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManual()} placeholder="Try “2 bags spinach”…" /><button onClick={addManual}><Plus /></button></div>{grocery.map((item, index) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><button className="icon-button" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))}><X /></button></div>)}{!grocery.length && <Empty title="Your list is clear" copy="Choose an almost-ready recipe or add an item above." />}</div><aside className="grocery-tip"><ShoppingBasket /><h3>Shop lighter</h3><p>Mise only adds what your recipes need and your kitchen doesn’t already have.</p><span>That means fewer duplicates and less food forgotten at the back of the fridge.</span></aside></div>
+    <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.0</h1><p>Organized by aisle, synced with your recipes, and ready to move purchases into your kitchen.</p></div><div className="title-actions">{neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={moveCheckedToKitchen}><PackageOpen size={18} /> Add {checkedCount} to kitchen</button>}</div></div>
+    <div className="grocery-progress panel"><div><span><strong>{checkedCount}</strong> of {grocery.length} collected</span><small>{neededCount ? `${neededCount} item${neededCount === 1 ? '' : 's'} left to find` : grocery.length ? 'Shopping complete — ready for your kitchen' : 'Add items or build a list from a recipe'}</small></div><div role="progressbar" aria-label="Shopping progress" aria-valuemin={0} aria-valuemax={grocery.length} aria-valuenow={checkedCount}><span style={{ width: `${grocery.length ? (checkedCount / grocery.length) * 100 : 0}%` }} /></div></div>
+    <div className="grocery-layout"><div className="grocery-list panel">
+      <div className="grocery-add"><label>Quick add<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'Add one or several items:\n2 bags spinach\n1 gallon milk\n6 apples'} /></label><button onClick={addManual} disabled={!draft.trim()}><Plus /> Add items</button></div>
+      {grocery.length > 0 && <div className="grocery-toolbar"><div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div><small>Items are grouped by aisle automatically</small></div>}
+      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><span>{categoryEmoji[category]}</span><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><div className="grocery-row-actions"><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div></div>)}</section>)}</div>
+      {!grocery.length && <Empty title="Your list is clear" copy="Add several items above or choose an almost-ready recipe." />}
+      {grocery.length > 0 && !visible.length && <Empty title={filter === 'checked' ? 'Nothing collected yet' : 'Everything is collected'} copy={filter === 'checked' ? 'Tap an item while shopping to move it here.' : 'Switch to Collected to review your cart.'} />}
+    </div><aside className="grocery-tip"><ShoppingBasket /><h3>Shop in one pass</h3><p>Mise groups your list by aisle and combines compatible quantities from recipes and meal plans.</p><span>Check items off as you shop, then add every purchase to your kitchen in one step.</span></aside></div>
+    {editing && <GroceryItemEditor item={editing.item} onClose={() => setEditing(null)} onSave={saveEditedItem} />}
   </section>
+}
+
+function GroceryItemEditor({ item, onClose, onSave }: { item: GroceryItem; onClose: () => void; onSave: (item: GroceryItem) => void }) {
+  const [name, setName] = useState(item.name)
+  const [amount, setAmount] = useState(item.amount)
+  const [unit, setUnit] = useState(item.unit)
+  function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!name.trim() || !Number.isFinite(amount) || amount <= 0 || !unit.trim()) return
+    onSave({ ...item, name: name.trim(), amount, unit: unit.trim() })
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-editor" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Grocery List 2.0</span><h2>Edit grocery item</h2></div><button type="button" onClick={onClose} aria-label="Close grocery item editor"><X /></button></div><div className="grocery-edit-preview"><span>{groceryEmoji({ name })}</span><p><strong>{name || 'Grocery item'}</strong><small>{groceryCategory({ name })} aisle</small></p></div><label>Item name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><div className="form-row"><label>Quantity<NumberField min="0.01" step="0.01" value={amount} onValueChange={setAmount} /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} /></label></div><button className="submit-button" type="submit">Save item <ArrowRight /></button></form></div>
 }
 
 function SettingsPage({ session, householdId, displayName, preferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
