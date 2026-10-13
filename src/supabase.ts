@@ -208,16 +208,15 @@ export async function saveMealPlanTemplateSnapshot(householdId: string, template
   const rows = templates.map((template) => ({
     household_id: householdId, id: template.id, name: template.name, entries: template.entries,
   }))
-  if (rows.length) {
-    const { error } = await supabase.from('meal_plan_templates').upsert(rows, { onConflict: 'household_id,id' })
-    if (error) throw error
-    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-    const { error: deleteError } = await supabase.from('meal_plan_templates').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
-    if (deleteError) throw deleteError
-  } else {
-    const { error } = await supabase.from('meal_plan_templates').delete().eq('household_id', householdId)
-    if (error) throw error
-  }
+  if (!rows.length) return
+  const { error } = await supabase.from('meal_plan_templates').upsert(rows, { onConflict: 'household_id,id' })
+  if (error) throw error
+}
+
+export async function deleteMealPlanTemplate(householdId: string, templateId: string) {
+  if (!supabase) return
+  const { error } = await supabase.from('meal_plan_templates').delete().eq('household_id', householdId).eq('id', templateId)
+  if (error) throw error
 }
 
 export async function saveRecipeSnapshot(householdId: string, items: Recipe[]) {

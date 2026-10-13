@@ -24,7 +24,7 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
 import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 
@@ -335,6 +335,11 @@ function App() {
     setMealPlanTemplates(update)
   }
 
+  async function removeMealPlanTemplate(templateId: string) {
+    if (!householdId || !session || demoMode) return
+    await withRetry(() => deleteMealPlanTemplate(householdId, templateId))
+  }
+
   function retrySync() {
     if (!navigator.onLine) { setSyncState('offline'); notify('You are still offline. Mise will retry when you reconnect.'); return }
     setIsOnline(true)
@@ -579,7 +584,7 @@ function App() {
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
-          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onAddToGrocery={addToGrocery} notify={notify} />}
+          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
@@ -695,9 +700,9 @@ function Recipes({ recipes, inventory, preferences, accessToken, savedExternalId
   </section>
 }
 
-function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTemplates, onAddToGrocery, notify }: {
+function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTemplates, onDeleteTemplate, onAddToGrocery, notify }: {
   recipes: RecipeMatch[]; inventory: InventoryItem[]; entries: MealPlanEntry[]; templates: MealPlanTemplate[];
-  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>;
+  setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>; onDeleteTemplate: (templateId: string) => Promise<void>;
   onAddToGrocery: (items: GroceryItem[]) => void; notify: (message: string) => void
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek())
@@ -763,7 +768,7 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
     <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} planned across {plannedDays} day{plannedDays === 1 ? '' : 's'}</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
     {picking && <MealPicker date={picking.date} mealSlot={picking.mealSlot} recipes={recipes} onClose={() => setPicking(null)} onChoose={(recipe) => chooseRecipe(picking.date, picking.mealSlot, recipe)} />}
     {copyingDate && <CopyDayPicker sourceDate={copyingDate} dates={dates} onClose={() => setCopyingDate(null)} onCopy={copyDay} />}
-    {templatesOpen && <MealPlanTemplateManager templates={templates} weekEntries={weekEntries} weekStart={weekStart} recipes={recipes} setEntries={setEntries} setTemplates={setTemplates} onClose={() => setTemplatesOpen(false)} notify={notify} />}
+    {templatesOpen && <MealPlanTemplateManager templates={templates} weekEntries={weekEntries} weekStart={weekStart} recipes={recipes} setEntries={setEntries} setTemplates={setTemplates} onDeleteTemplate={onDeleteTemplate} onClose={() => setTemplatesOpen(false)} notify={notify} />}
   </section>
 }
 
@@ -780,10 +785,10 @@ function CopyDayPicker({ sourceDate, dates, onClose, onCopy }: { sourceDate: str
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal copy-day-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Copy {sourceLabel}</span><h2>Choose a day</h2></div><button onClick={onClose} aria-label="Close copy day picker"><X /></button></div><p className="modal-intro">Every meal on the destination day will be replaced with this day’s plan.</p><div className="copy-day-options">{dates.filter((date) => localDateKey(date) !== sourceDate).map((date) => { const key = localDateKey(date); return <button key={key} onClick={() => onCopy(key)}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong><ArrowRight /></button> })}</div></section></div>
 }
 
-function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, setEntries, setTemplates, onClose, notify }: {
+function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, setEntries, setTemplates, onDeleteTemplate, onClose, notify }: {
   templates: MealPlanTemplate[]; weekEntries: MealPlanEntry[]; weekStart: Date; recipes: RecipeMatch[];
   setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>;
-  onClose: () => void; notify: (message: string) => void
+  onDeleteTemplate: (templateId: string) => Promise<void>; onClose: () => void; notify: (message: string) => void
 }) {
   const [name, setName] = useState('')
   const recipeIds = new Set(recipes.map((recipe) => recipe.id))
@@ -808,10 +813,16 @@ function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, s
     notify(`${template.name} applied${skipped ? ` · ${skipped} unavailable recipe${skipped === 1 ? '' : 's'} skipped` : ''}`)
   }
 
-  function removeTemplate(template: MealPlanTemplate) {
+  async function removeTemplate(template: MealPlanTemplate) {
     if (!window.confirm(`Delete “${template.name}”?`)) return
-    setTemplates((current) => current.filter((candidate) => candidate.id !== template.id))
-    notify(`${template.name} deleted`)
+    try {
+      await onDeleteTemplate(template.id)
+      setTemplates((current) => current.filter((candidate) => candidate.id !== template.id))
+      notify(`${template.name} deleted`)
+    } catch (error) {
+      console.error(error)
+      notify(`${template.name} could not be deleted`)
+    }
   }
 
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal meal-template-manager" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Reusable weeks</span><h2>Meal plan templates</h2><p>Save this week once, then reuse it whenever life gets busy.</p></div><button onClick={onClose} aria-label="Close meal plan templates"><X /></button></div><form className="meal-template-create" onSubmit={saveCurrentWeek}><label>Template name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Family favorites" /></label><button type="submit" disabled={!name.trim() || !weekEntries.length}><BookmarkCheck /> Save this week</button></form>{!weekEntries.length && <p className="template-hint">Add at least one meal to this week before saving it as a template.</p>}<div className="meal-template-list">{templates.map((template) => { const unavailable = template.entries.filter((entry) => !recipeIds.has(entry.recipeId)).length; const days = new Set(template.entries.map((entry) => entry.dayOffset)).size; return <article key={template.id}><div className="template-name"><MealTemplateName template={template} onRename={(nextName) => setTemplates((current) => current.map((candidate) => candidate.id === template.id ? { ...candidate, name: nextName } : candidate))} /><small>{template.entries.length} meal{template.entries.length === 1 ? '' : 's'} across {days} day{days === 1 ? '' : 's'}{unavailable ? ` · ${unavailable} unavailable` : ''}</small></div><div className="template-actions"><button onClick={() => applyTemplate(template)} disabled={template.entries.length === unavailable}><CalendarDays /> Use this week</button><button className="delete" onClick={() => removeTemplate(template)} aria-label={`Delete ${template.name}`}><Trash2 /></button></div></article> })}</div>{!templates.length && <div className="template-empty"><CalendarDays /><strong>No templates yet</strong><p>Plan a week, give it a name above, and save it for later.</p></div>}</section></div>
