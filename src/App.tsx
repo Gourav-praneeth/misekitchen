@@ -128,6 +128,7 @@ function App() {
   const starterRecipes = useRef(customRecipes)
   const starterMealPlan = useRef(mealPlan)
   const starterMealPlanTemplates = useRef(mealPlanTemplates)
+  const mealPlanTemplatesDirty = useRef(false)
   const saveQueue = useRef(createLatestSaveQueue())
 
   useEffect(() => {
@@ -163,6 +164,7 @@ function App() {
     if (!session || demoMode) return
     let active = true
     async function hydrate() {
+      setCloudReady(false)
       try {
         const localKitchen = readStoredKitchen('pending', session!.user.id) || readStoredKitchen('cache', session!.user.id)
         if (!isOnline) {
@@ -196,6 +198,7 @@ function App() {
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
           setMealPlanTemplates(pending.mealPlanTemplates || [])
+          mealPlanTemplatesDirty.current = true
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))
@@ -203,6 +206,7 @@ function App() {
           setCustomRecipes(starterRecipes.current)
           setMealPlan(starterMealPlan.current)
           setMealPlanTemplates(starterMealPlanTemplates.current)
+          mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
           setStaples(starterStaples.current)
@@ -216,6 +220,7 @@ function App() {
           setCustomRecipes(cloud.recipes)
           setMealPlan(cloud.mealPlan)
           setMealPlanTemplates(cloud.mealPlanTemplates)
+          mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
           writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
@@ -276,18 +281,20 @@ function App() {
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
     const reservation = saveQueue.current.reserve()
+    const templatesForCloud = mealPlanTemplatesDirty.current ? mealPlanTemplates : undefined
     const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       setSyncState('syncing')
       const result = await reservation.run(async () => {
-        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates }))
+        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates: templatesForCloud }))
       })
       if (!result.latest) return
       if (!result.error) {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
+        if (templatesForCloud) mealPlanTemplatesDirty.current = false
         setSyncState('saved')
       } else {
         console.error(result.error instanceof Error ? result.error.message : String(result.error))
@@ -322,6 +329,11 @@ function App() {
   const readyCount = recipeMatches.filter((recipe) => recipe.missing.length === 0).length
 
   function notify(message: string) { setToast({ message }) }
+
+  const updateMealPlanTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>> = (update) => {
+    mealPlanTemplatesDirty.current = true
+    setMealPlanTemplates(update)
+  }
 
   function retrySync() {
     if (!navigator.onLine) { setSyncState('offline'); notify('You are still offline. Mise will retry when you reconnect.'); return }
@@ -567,7 +579,7 @@ function App() {
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
-          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={setMealPlanTemplates} onAddToGrocery={addToGrocery} notify={notify} />}
+          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>

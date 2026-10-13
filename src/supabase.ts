@@ -322,18 +322,18 @@ type KitchenSnapshot = {
   staples: GroceryStaple[]
   recipes: Recipe[]
   mealPlan: MealPlanEntry[]
-  mealPlanTemplates: MealPlanTemplate[]
+  mealPlanTemplates?: MealPlanTemplate[]
 }
 
 export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot) {
-  const operations = [
+  const operations: Array<readonly [string, Promise<void>]> = [
     ['inventory', saveInventorySnapshot(householdId, snapshot.inventory)],
     ['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery)],
     ['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)],
     ['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)],
     ['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)],
-    ['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)],
-  ] as const
+    ...(snapshot.mealPlanTemplates === undefined ? [] : [['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)] as const]),
+  ]
   const results = await Promise.allSettled(operations.map(([, operation]) => operation))
   const failures = results.flatMap((result, index) => result.status === 'rejected'
     ? [`${operations[index][0]}: ${cloudErrorMessage(result.reason)}`]
