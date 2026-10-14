@@ -548,6 +548,19 @@ function App() {
     notify(`${recipe.name} saved to your recipes`)
   }
 
+  async function removeCookingHistory(entry: CookingHistoryEntry) {
+    if (!window.confirm(`Remove ${entry.recipeName} from cooking history?`)) return
+    const previous = cookingHistory
+    setCookingHistory((current) => current.filter((candidate) => candidate.id !== entry.id))
+    try {
+      if (householdId && session && !demoMode) await deleteCookingHistoryEntry(householdId, entry.id)
+      notify('Cooking history entry removed')
+    } catch (error) {
+      setCookingHistory(previous)
+      notify(errorMessage(error, 'The cooking history entry could not be removed.'))
+    }
+  }
+
   async function deleteRecipe(recipe: Recipe) {
     if (recipe.source === 'mise') {
       const previous = hiddenMiseRecipeIds
@@ -630,7 +643,7 @@ function App() {
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
@@ -741,7 +754,7 @@ function Freshness({ item }: { item: InventoryItem }) {
   return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
-function Recipes({ recipes, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onAdd, onSaveDiscovered, onAddToGrocery }: { recipes: RecipeMatch[]; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
+function Recipes({ recipes, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onRemoveHistory, onAdd, onSaveDiscovered, onAddToGrocery }: { recipes: RecipeMatch[]; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onRemoveHistory: (entry: CookingHistoryEntry) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
   const [sort, setSort] = useState<'match' | 'time' | 'urgent'>('match')
   const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'discover' | 'history'>('all')
   const filtered = recipes.filter((recipe) => filter === 'mine' ? recipe.source !== 'mise' : filter === 'ready' ? recipe.missing.length === 0 : true)
@@ -752,12 +765,12 @@ function Recipes({ recipes, cookingHistory, inventory, preferences, accessToken,
     {filter === 'discover'
       ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} savedExternalIds={savedExternalIds} onSaveDiscovered={onSaveDiscovered} onAddToGrocery={onAddToGrocery} />
       : filter === 'history'
-        ? <CookingHistory entries={cookingHistory} recipes={recipes} onOpenRecipe={setSelectedRecipe} />
+        ? <CookingHistory entries={cookingHistory} recipes={recipes} onOpenRecipe={setSelectedRecipe} onRemove={onRemoveHistory} />
         : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
   </section>
 }
 
-function CookingHistory({ entries, recipes, onOpenRecipe }: { entries: CookingHistoryEntry[]; recipes: RecipeMatch[]; onOpenRecipe: (recipe: RecipeMatch) => void }) {
+function CookingHistory({ entries, recipes, onOpenRecipe, onRemove }: { entries: CookingHistoryEntry[]; recipes: RecipeMatch[]; onOpenRecipe: (recipe: RecipeMatch) => void; onRemove: (entry: CookingHistoryEntry) => void }) {
   const recent = recentCookingHistory(entries)
   const stats = cookingHistoryStats(entries)
   if (!recent.length) return <Empty title="No meals cooked yet" copy="When you cook a recipe and update your kitchen, it will appear here automatically." />
@@ -776,7 +789,7 @@ function CookingHistory({ entries, recipes, onOpenRecipe }: { entries: CookingHi
           <span className="cooking-history-icon">{entry.recipeEmoji}</span>
           <div><strong>{entry.recipeName}</strong><small>{cookedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: cookedAt.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })} at {cookedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small></div>
           <p><span>{entry.servings} serving{entry.servings === 1 ? '' : 's'}</span><small><Clock3 /> {entry.timeMinutes} min · {entry.cookedByName}</small></p>
-          {recipe ? <button onClick={() => onOpenRecipe(recipe)}>Cook again <ArrowRight /></button> : <em>Recipe unavailable</em>}
+          <div className="cooking-history-actions">{recipe ? <button onClick={() => onOpenRecipe(recipe)}>Cook again <ArrowRight /></button> : <em>Recipe unavailable</em>}<button className="delete" onClick={() => onRemove(entry)} aria-label={`Remove ${entry.recipeName} from cooking history`}><Trash2 /></button></div>
         </li>
       })}</ol>
     </div>

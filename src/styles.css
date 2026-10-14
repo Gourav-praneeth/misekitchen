@@ -385,9 +385,11 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .cooking-history-list li > p span { font-size: 9px; font-weight: 800; }
 .cooking-history-list li > p small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 3px; color: #8a938b; font-size: 7px; }
 .cooking-history-list li > p svg { width: 10px; }
-.cooking-history-list li > button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #cbd7cd; border-radius: 8px; background: #edf3eb; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
-.cooking-history-list li > button svg { width: 11px; }
-.cooking-history-list li > em { color: #969c96; font-size: 8px; font-style: normal; }
+.cooking-history-actions { display: flex; align-items: center; gap: 5px; }
+.cooking-history-actions > button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #cbd7cd; border-radius: 8px; background: #edf3eb; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
+.cooking-history-actions > button svg { width: 11px; }
+.cooking-history-actions > button.delete { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-color: #ead1c9; background: #f8ebe6; color: #a4563e; }
+.cooking-history-actions > em { color: #969c96; font-size: 8px; font-style: normal; }
 @media (max-width: 700px) {
   .cooking-history-summary { grid-template-columns: 1fr; }
   .cooking-history-summary > div { padding: 13px 16px; }
@@ -397,7 +399,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .cooking-history-list li { grid-template-columns: 42px minmax(0, 1fr) auto; }
   .cooking-history-list li > p { grid-column: 2 / -1; text-align: left; }
   .cooking-history-list li > p small { justify-content: flex-start; }
-  .cooking-history-list li > button, .cooking-history-list li > em { grid-column: 3; grid-row: 1; }
+  .cooking-history-actions { grid-column: 3; grid-row: 1; }
   .recipe-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .recipe-filters button { flex: 0 0 auto; }
 }
