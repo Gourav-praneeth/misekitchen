@@ -18,6 +18,7 @@ import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreference
 import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { defaultMealReminderPreferences, mealReminderLabel, mealRemindersForToday, normalizeMealReminderPreferences, type MealReminder, type MealReminderPreferences } from './mealReminders'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
+import { isNewerKitchenMessage, releaseSyncLease, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
 import { mergeRecipeIngredients, parseRecipeIngredients } from './recipeIngredients'
@@ -32,10 +33,11 @@ import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, G
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
-type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
+type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
 type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -139,6 +141,13 @@ function App() {
   const starterMealPlanTemplates = useRef(mealPlanTemplates)
   const mealPlanTemplatesDirty = useRef(false)
   const saveQueue = useRef(createLatestSaveQueue())
+  const tabId = useRef(crypto.randomUUID())
+  const syncChannel = useRef<BroadcastChannel | null>(null)
+  const syncRevision = useRef(0)
+  const localChangesPending = useRef(false)
+  const syncConflict = useRef(false)
+  const applyingRemoteSnapshot = useRef(false)
+  const skipNextCloudSave = useRef(false)
 
   useEffect(() => {
     if (!supabase) return
@@ -203,6 +212,8 @@ function App() {
         if (!id) throw new Error('No kitchen was created for this account.')
         const cloud = await loadCloudKitchen(id)
         if (!active) return
+        syncRevision.current = Date.now()
+        syncConflict.current = false
         setHouseholdId(id)
         const pending = readStoredKitchen('pending', session!.user.id)
         if (pending?.householdId === id) {
@@ -250,6 +261,8 @@ function App() {
         // newly introduced collection can briefly save its empty initial state.
         window.setTimeout(() => {
           if (!active) return
+          localChangesPending.current = Boolean(pending?.householdId === id)
+          skipNextCloudSave.current = !pending?.householdId || pending.householdId !== id
           setCloudReady(true)
           setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
         }, 0)
@@ -306,22 +319,84 @@ function App() {
   }, [session, demoMode])
 
   useEffect(() => {
+    if (!session || !householdId || !cloudReady || typeof BroadcastChannel === 'undefined') return
+    const channel = new BroadcastChannel(`mise-kitchen-sync-v1-${session.user.id}-${householdId}`)
+    syncChannel.current = channel
+    channel.onmessage = (event: MessageEvent<KitchenSyncMessage>) => {
+      const message = event.data
+      if (message?.type !== 'kitchen-saved' || message.snapshot.householdId !== householdId) return
+      if (!isNewerKitchenMessage(syncRevision.current, message.revision, message.senderId, tabId.current)) return
+      if (localChangesPending.current || syncConflict.current) {
+        syncConflict.current = true
+        setSyncState('conflict')
+        return
+      }
+      applyingRemoteSnapshot.current = true
+      syncRevision.current = message.revision
+      const snapshot = message.snapshot
+      setInventory(snapshot.inventory.map((item) => withExpirationDate(item)))
+      setGrocery(snapshot.grocery)
+      setStapleGroups(snapshot.stapleGroups || [])
+      setStaples(snapshot.staples || [])
+      setCustomRecipes(snapshot.recipes || [])
+      setMealPlan(snapshot.mealPlan || [])
+      setMealPlanTemplates(snapshot.mealPlanTemplates || [])
+      mealPlanTemplatesDirty.current = false
+      setCookingHistory(snapshot.cookingHistory || [])
+      setHiddenMiseRecipeIds(snapshot.hiddenMiseRecipeIds || [])
+      writeStoredKitchen('cache', session.user.id, snapshot)
+      localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
+      setSyncState('saved')
+    }
+    return () => {
+      channel.close()
+      if (syncChannel.current === channel) syncChannel.current = null
+    }
+  }, [session, householdId, cloudReady])
+
+  useEffect(() => {
     if (!householdId || !cloudReady || !session) return
+    if (applyingRemoteSnapshot.current) {
+      applyingRemoteSnapshot.current = false
+      localChangesPending.current = false
+      return
+    }
+    if (skipNextCloudSave.current) {
+      skipNextCloudSave.current = false
+      localChangesPending.current = false
+      return
+    }
+    if (syncConflict.current) { setSyncState('conflict'); return }
     const reservation = saveQueue.current.reserve()
     const templatesForCloud = mealPlanTemplatesDirty.current ? mealPlanTemplates : undefined
     const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    localChangesPending.current = true
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
+      if (syncConflict.current) { setSyncState('conflict'); return }
       setSyncState('syncing')
+      const leaseKey = syncLeaseKey(session.user.id, householdId)
+      if (!tryAcquireSyncLease(localStorage, leaseKey, tabId.current)) {
+        window.setTimeout(() => setRetryToken((value) => value + 1), 700)
+        return
+      }
       const result = await reservation.run(async () => {
-        await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates: templatesForCloud }))
+        try {
+          await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates: templatesForCloud }))
+        } finally {
+          releaseSyncLease(localStorage, leaseKey, tabId.current)
+        }
       })
       if (!result.latest) return
       if (!result.error) {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
         if (templatesForCloud) mealPlanTemplatesDirty.current = false
+        localChangesPending.current = false
+        const revision = Date.now()
+        syncRevision.current = revision
+        syncChannel.current?.postMessage({ type: 'kitchen-saved', senderId: tabId.current, revision, snapshot } satisfies KitchenSyncMessage)
         setSyncState('saved')
       } else {
         console.error(result.error instanceof Error ? result.error.message : String(result.error))
@@ -372,6 +447,16 @@ function App() {
   }
 
   function retrySync() {
+    if (syncConflict.current) {
+      if (!window.confirm('Reload the newest kitchen from the cloud? Unsaved changes in this tab will be discarded.')) return
+      syncConflict.current = false
+      localChangesPending.current = false
+      if (session) localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
+      setCloudReady(false)
+      setSyncState('syncing')
+      setLoadRetryToken((value) => value + 1)
+      return
+    }
     if (!navigator.onLine) { setSyncState('offline'); notify('You are still offline. Mise will retry when you reconnect.'); return }
     setIsOnline(true)
     setSyncState('syncing')
@@ -632,8 +717,8 @@ function App() {
         <header className="topbar">
           <button className="mobile-brand" onClick={() => setView('home')} aria-label="Go to overview"><Leaf size={18} /> Mise</button>
           <button className="search-button"><Search size={17} /><span>Search your kitchen</span><kbd>⌘ K</kbd></button>
-          {session && (syncState === 'error' || syncState === 'offline'
-            ? <button className={`sync-state ${syncState}`} onClick={retrySync} title="Retry cloud sync">{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : 'Retry sync'}</button>
+          {session && (syncState === 'error' || syncState === 'offline' || syncState === 'conflict'
+            ? <button className={`sync-state ${syncState}`} onClick={retrySync} title={syncState === 'conflict' ? 'Reload the newest kitchen' : 'Retry cloud sync'}>{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : syncState === 'conflict' ? 'Newer changes found' : 'Retry sync'}</button>
             : <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : 'Saving…'}</span>)}
           {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)} aria-label="Open feedback"><MessageSquareText size={16} /><span>Feedback</span></button>}
           <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
@@ -1147,6 +1232,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
     syncing: 'Your latest changes are being saved now.',
     error: 'Your changes are safe on this device and waiting to sync.',
     offline: 'You can keep working. Changes will sync when you reconnect.',
+    conflict: 'Another open tab saved newer changes. Reload before continuing so nothing is overwritten.',
   }
 
   useEffect(() => {
@@ -1300,7 +1386,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
       <article className="settings-card panel">
         <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
         <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
-        {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> Retry sync</button>}
+        {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> {syncState === 'conflict' ? 'Reload latest kitchen' : 'Retry sync'}</button>}
       </article>
       <article className="settings-card reminder-settings-card panel">
         <div className="settings-card-head"><span className={reminderPreferences.enabled ? 'healthy' : ''}><BellRing /></span><div><h2>Meal reminders</h2><p>See timely prompts for meals you planned today.</p></div></div>

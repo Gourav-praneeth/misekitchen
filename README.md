@@ -51,6 +51,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - The first sign-in imports the user's existing local demo kitchen into the cloud.
 - Inventory, grocery, and household recipe changes are saved after a short debounce.
 - Signed-in kitchens keep an account-scoped browser cache and a pending-change snapshot so temporary connection loss does not discard edits.
+- Open tabs coordinate cloud writes, receive fresh kitchen snapshots, and stop on simultaneous-edit conflicts instead of silently overwriting newer data.
 - Failed cloud saves retry automatically, remain available for manual retry, and resume when the browser reconnects.
 - Ingredient freshness is stored as a calendar use-by date, with legacy `expires_in` values migrated automatically.
 - Each query is restricted to authenticated household members by Row Level Security.
