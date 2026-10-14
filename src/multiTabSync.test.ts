@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isNewerKitchenMessage, releaseSyncLease, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
+import { isNewerKitchenMessage, releaseSyncLease, sameKitchenContents, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
 
 function memoryStorage() {
   const values = new Map<string, string>()
@@ -31,5 +31,12 @@ describe('multi-tab sync lease', () => {
     expect(isNewerKitchenMessage(4, 5, 'tab-b', 'tab-a')).toBe(true)
     expect(isNewerKitchenMessage(5, 5, 'tab-b', 'tab-a')).toBe(false)
     expect(isNewerKitchenMessage(4, 6, 'tab-a', 'tab-a')).toBe(false)
+  })
+
+  it('treats snapshots with only different save timestamps as identical', () => {
+    const first = { householdId: 'kitchen', inventory: [{ id: 'milk', quantity: 1 }], savedAt: '2026-10-14T10:00:00Z' }
+    const second = { ...first, savedAt: '2026-10-14T10:00:01Z' }
+    expect(sameKitchenContents(first, second)).toBe(true)
+    expect(sameKitchenContents(first, { ...second, inventory: [{ id: 'milk', quantity: 2 }] })).toBe(false)
   })
 })

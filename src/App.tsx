@@ -18,7 +18,7 @@ import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreference
 import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { defaultMealReminderPreferences, mealReminderLabel, mealRemindersForToday, normalizeMealReminderPreferences, type MealReminder, type MealReminderPreferences } from './mealReminders'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
-import { isNewerKitchenMessage, releaseSyncLease, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
+import { isNewerKitchenMessage, releaseSyncLease, sameKitchenContents, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
 import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
 import { mergeRecipeIngredients, parseRecipeIngredients } from './recipeIngredients'
@@ -326,11 +326,14 @@ function App() {
       const message = event.data
       if (message?.type !== 'kitchen-saved' || message.snapshot.householdId !== householdId) return
       if (!isNewerKitchenMessage(syncRevision.current, message.revision, message.senderId, tabId.current)) return
-      if (localChangesPending.current || syncConflict.current) {
+      const pending = readStoredKitchen('pending', session.user.id)
+      const matchesPending = pending?.householdId === householdId && sameKitchenContents(pending as unknown as Record<string, unknown>, message.snapshot as unknown as Record<string, unknown>)
+      if ((localChangesPending.current || syncConflict.current) && !matchesPending) {
         syncConflict.current = true
         setSyncState('conflict')
         return
       }
+      syncConflict.current = false
       applyingRemoteSnapshot.current = true
       syncRevision.current = message.revision
       const snapshot = message.snapshot

@@ -24,3 +24,10 @@ export function releaseSyncLease(storage: StorageLike, key: string, ownerId: str
 export function isNewerKitchenMessage(currentRevision: number, messageRevision: number, senderId: string, ownId: string) {
   return senderId !== ownId && Number.isFinite(messageRevision) && messageRevision > currentRevision
 }
+
+export function sameKitchenContents(first: Record<string, unknown>, second: Record<string, unknown>) {
+  const withoutVolatileFields = (snapshot: Record<string, unknown>) => Object.fromEntries(
+    Object.entries(snapshot).filter(([key]) => key !== 'savedAt'),
+  )
+  return JSON.stringify(withoutVolatileFields(first)) === JSON.stringify(withoutVolatileFields(second))
+}
