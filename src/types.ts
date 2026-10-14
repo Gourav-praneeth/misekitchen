@@ -73,6 +73,18 @@ export type MealPlanTemplate = {
   entries: MealPlanTemplateEntry[]
 }
 
+export type CookingHistoryEntry = {
+  id: string
+  recipeId: string
+  recipeName: string
+  recipeEmoji: string
+  servings: number
+  timeMinutes: number
+  cookedAt: string
+  cookedByUserId: string | null
+  cookedByName: string
+}
+
 export type HouseholdSummary = {
   id: string
   name: string

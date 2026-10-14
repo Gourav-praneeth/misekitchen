@@ -7,6 +7,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { recipes, seedInventory } from './data'
+import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
@@ -25,16 +26,16 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
+import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
@@ -104,6 +105,9 @@ function App() {
   })
   const [mealPlanTemplates, setMealPlanTemplates] = useState<MealPlanTemplate[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-meal-plan-templates-v1') || '') || [] } catch { return [] }
+  })
+  const [cookingHistory, setCookingHistory] = useState<CookingHistoryEntry[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-cooking-history-v1') || '') || [] } catch { return [] }
   })
   const [hiddenMiseRecipeIds, setHiddenMiseRecipeIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-hidden-recipes-v1') || '') || [] } catch { return [] }
@@ -187,6 +191,7 @@ function App() {
             setCustomRecipes(localKitchen.recipes || [])
             setMealPlan(localKitchen.mealPlan || [])
             setMealPlanTemplates(localKitchen.mealPlanTemplates || [])
+            setCookingHistory(localKitchen.cookingHistory || [])
             setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
             setCloudReady(true)
           }
@@ -211,6 +216,7 @@ function App() {
           setCustomRecipes(pending.recipes || [])
           setMealPlan(pending.mealPlan || [])
           setMealPlanTemplates(mergedTemplates)
+          setCookingHistory(pending.cookingHistory || cloud.cookingHistory)
           mealPlanTemplatesDirty.current = pendingTemplates.length > 0
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
@@ -219,6 +225,7 @@ function App() {
           setCustomRecipes(starterRecipes.current)
           setMealPlan(starterMealPlan.current)
           setMealPlanTemplates(starterMealPlanTemplates.current)
+          setCookingHistory([])
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
@@ -233,9 +240,10 @@ function App() {
           setCustomRecipes(cloud.recipes)
           setMealPlan(cloud.mealPlan)
           setMealPlanTemplates(cloud.mealPlanTemplates)
+          setCookingHistory(cloud.cookingHistory)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
         // Enable outbound sync on the next task so every hydrated collection has
         // rendered before the snapshot effect can run. Without this boundary, a
@@ -282,6 +290,9 @@ function App() {
     if (!session || demoMode) localStorage.setItem('mise-meal-plan-templates-v1', JSON.stringify(mealPlanTemplates))
   }, [mealPlanTemplates, session, demoMode])
   useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-cooking-history-v1', JSON.stringify(cookingHistory))
+  }, [cookingHistory, session, demoMode])
+  useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-hidden-recipes-v1', JSON.stringify(hiddenMiseRecipeIds))
   }, [hiddenMiseRecipeIds, session, demoMode])
 
@@ -298,7 +309,7 @@ function App() {
     if (!householdId || !cloudReady || !session) return
     const reservation = saveQueue.current.reserve()
     const templatesForCloud = mealPlanTemplatesDirty.current ? mealPlanTemplates : undefined
-    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     writeStoredKitchen('pending', session.user.id, snapshot)
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
@@ -318,7 +329,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -500,9 +511,25 @@ function App() {
       return current < needed ? [{ ...ingredient, amount: Number((needed - current).toFixed(2)), checked: false }] : []
     })
     if (missing.length) { addToGrocery(missing); setSelectedRecipe(null); return }
+    const previousInventory = inventory
+    const actorName = [session?.user.user_metadata?.display_name, session?.user.user_metadata?.full_name, session?.user.user_metadata?.name, session?.user.email?.split('@')[0]]
+      .find((value) => typeof value === 'string' && value.trim()) || 'You'
+    const historyEntry = cookingHistoryEntry(recipe, scale, { userId: session?.user.id, name: actorName })
     setInventory((current) => deductIngredients(current, recipe.ingredients, scale, normalize))
+    setCookingHistory((current) => recentCookingHistory([historyEntry, ...current], 100))
+    if (householdId && session && !demoMode) {
+      void saveCookingHistoryEntry(householdId, historyEntry).catch((error) => console.error('Cooking history could not be synced.', error))
+    }
     setSelectedRecipe(null)
-    notify(`Kitchen updated after making ${recipe.name}`)
+    setToast({
+      message: `${recipe.name} added to cooking history`,
+      undo: () => {
+        setInventory(previousInventory)
+        setCookingHistory((current) => current.filter((entry) => entry.id !== historyEntry.id))
+        if (householdId && session && !demoMode) void deleteCookingHistoryEntry(householdId, historyEntry.id)
+        setToast({ message: 'Cooking update undone' })
+      },
+    })
   }
 
   function saveCustomRecipe(recipe: Recipe) {
@@ -603,7 +630,7 @@ function App() {
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
@@ -714,15 +741,45 @@ function Freshness({ item }: { item: InventoryItem }) {
   return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
-function Recipes({ recipes, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onAdd, onSaveDiscovered, onAddToGrocery }: { recipes: RecipeMatch[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
+function Recipes({ recipes, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onAdd, onSaveDiscovered, onAddToGrocery }: { recipes: RecipeMatch[]; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
   const [sort, setSort] = useState<'match' | 'time' | 'urgent'>('match')
-  const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'discover'>('all')
+  const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'discover' | 'history'>('all')
   const filtered = recipes.filter((recipe) => filter === 'mine' ? recipe.source !== 'mise' : filter === 'ready' ? recipe.missing.length === 0 : true)
   const sorted = [...filtered].sort((a, b) => sort === 'time' ? a.time - b.time : sort === 'urgent' ? b.urgent - a.urgent : b.score - a.score)
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Cook from what you have</span><h1>What can I make?</h1><p>Your recipes and Mise ideas are ranked by what is already in your kitchen.</p></div><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add my recipe</button></div>
-    <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All recipes'], ['mine', 'My saved'], ['ready', 'Ready now'], ['discover', 'Discover']] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{label}</button>)}</div>{filter !== 'discover' && <label className="recipe-sort">Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="match">Best match</option><option value="time">Quickest</option><option value="urgent">Uses food soon</option></select></label>}</div>
-    {filter === 'discover' ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} savedExternalIds={savedExternalIds} onSaveDiscovered={onSaveDiscovered} onAddToGrocery={onAddToGrocery} /> : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
+    <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All recipes'], ['mine', 'My saved'], ['ready', 'Ready now'], ['discover', 'Discover'], ['history', `History${cookingHistory.length ? ` ${cookingHistory.length}` : ''}`]] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{value === 'history' && <Clock3 size={12} />}{label}</button>)}</div>{filter !== 'discover' && filter !== 'history' && <label className="recipe-sort">Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="match">Best match</option><option value="time">Quickest</option><option value="urgent">Uses food soon</option></select></label>}</div>
+    {filter === 'discover'
+      ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} savedExternalIds={savedExternalIds} onSaveDiscovered={onSaveDiscovered} onAddToGrocery={onAddToGrocery} />
+      : filter === 'history'
+        ? <CookingHistory entries={cookingHistory} recipes={recipes} onOpenRecipe={setSelectedRecipe} />
+        : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
+  </section>
+}
+
+function CookingHistory({ entries, recipes, onOpenRecipe }: { entries: CookingHistoryEntry[]; recipes: RecipeMatch[]; onOpenRecipe: (recipe: RecipeMatch) => void }) {
+  const recent = recentCookingHistory(entries)
+  const stats = cookingHistoryStats(entries)
+  if (!recent.length) return <Empty title="No meals cooked yet" copy="When you cook a recipe and update your kitchen, it will appear here automatically." />
+  return <section className="cooking-history">
+    <div className="cooking-history-summary panel">
+      <div><CookingPot /><p><strong>{stats.totalMeals}</strong><small>meals recorded</small></p></div>
+      <div><CalendarDays /><p><strong>{stats.recentMeals}</strong><small>in the last 30 days</small></p></div>
+      <div><UsersRound /><p><strong>{stats.totalServings}</strong><small>servings prepared</small></p></div>
+    </div>
+    <div className="cooking-history-list panel">
+      <header><div><span className="eyebrow">Kitchen timeline</span><h2>Recently cooked</h2></div><small>Shared with your kitchen</small></header>
+      <ol>{recent.map((entry) => {
+        const recipe = recipes.find((candidate) => candidate.id === entry.recipeId)
+        const cookedAt = new Date(entry.cookedAt)
+        return <li key={entry.id}>
+          <span className="cooking-history-icon">{entry.recipeEmoji}</span>
+          <div><strong>{entry.recipeName}</strong><small>{cookedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: cookedAt.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })} at {cookedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small></div>
+          <p><span>{entry.servings} serving{entry.servings === 1 ? '' : 's'}</span><small><Clock3 /> {entry.timeMinutes} min · {entry.cookedByName}</small></p>
+          {recipe ? <button onClick={() => onOpenRecipe(recipe)}>Cook again <ArrowRight /></button> : <em>Recipe unavailable</em>}
+        </li>
+      })}</ol>
+    </div>
   </section>
 }
 

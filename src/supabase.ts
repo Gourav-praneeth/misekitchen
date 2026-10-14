@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
+import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -132,8 +132,8 @@ export async function saveFoodPreferences(userId: string, preferences: FoodPrefe
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [], hiddenMiseRecipeIds: [], initialized: false }
-  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, templateResult, householdResult] = await Promise.all([
+  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [], cookingHistory: [], hiddenMiseRecipeIds: [], initialized: false }
+  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, templateResult, cookingHistoryResult, householdResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_staple_groups').select('*').eq('household_id', householdId).order('sort_order'),
@@ -141,6 +141,7 @@ export async function loadCloudKitchen(householdId: string) {
     supabase.from('household_recipes').select('*').eq('household_id', householdId).order('name'),
     supabase.from('meal_plan_entries').select('*').eq('household_id', householdId).order('plan_date'),
     supabase.from('meal_plan_templates').select('*').eq('household_id', householdId).order('updated_at', { ascending: false }),
+    supabase.from('cooking_history').select('*').eq('household_id', householdId).order('cooked_at', { ascending: false }).limit(100),
     supabase.from('households').select('initialized,hidden_mise_recipe_ids').eq('id', householdId).single(),
   ])
   if (inventoryResult.error) throw inventoryResult.error
@@ -150,6 +151,8 @@ export async function loadCloudKitchen(householdId: string) {
   if (recipeResult.error) throw recipeResult.error
   if (mealPlanResult.error) throw mealPlanResult.error
   if (templateResult.error) throw templateResult.error
+  // Keep older deployments usable until the cooking-history migration is run.
+  if (cookingHistoryResult.error && !['42P01', 'PGRST205'].includes(cookingHistoryResult.error.code || '')) throw cookingHistoryResult.error
   if (householdResult.error) throw householdResult.error
   return {
     inventory: (inventoryResult.data || []).map((row) => ({
@@ -180,9 +183,30 @@ export async function loadCloudKitchen(householdId: string) {
     mealPlanTemplates: (templateResult.data || []).map((row) => ({
       id: row.id, name: row.name, entries: row.entries,
     })) as MealPlanTemplate[],
+    cookingHistory: (cookingHistoryResult.data || []).map((row) => ({
+      id: row.id, recipeId: row.recipe_id, recipeName: row.recipe_name, recipeEmoji: row.recipe_emoji,
+      servings: Number(row.servings), timeMinutes: Number(row.time_minutes), cookedAt: row.cooked_at,
+      cookedByUserId: row.cooked_by_user_id, cookedByName: row.cooked_by_name || 'Kitchen member',
+    })) as CookingHistoryEntry[],
     hiddenMiseRecipeIds: (householdResult.data.hidden_mise_recipe_ids || []) as string[],
     initialized: Boolean(householdResult.data.initialized),
   }
+}
+
+export async function saveCookingHistoryEntry(householdId: string, entry: CookingHistoryEntry) {
+  if (!supabase) return
+  const { error } = await supabase.from('cooking_history').insert({
+    household_id: householdId, id: entry.id, recipe_id: entry.recipeId, recipe_name: entry.recipeName,
+    recipe_emoji: entry.recipeEmoji, servings: entry.servings, time_minutes: entry.timeMinutes,
+    cooked_at: entry.cookedAt, cooked_by_user_id: entry.cookedByUserId, cooked_by_name: entry.cookedByName,
+  })
+  if (error) throw error
+}
+
+export async function deleteCookingHistoryEntry(householdId: string, entryId: string) {
+  if (!supabase) return
+  const { error } = await supabase.from('cooking_history').delete().eq('household_id', householdId).eq('id', entryId)
+  if (error) throw error
 }
 
 export async function saveMealPlanSnapshot(householdId: string, entries: MealPlanEntry[]) {

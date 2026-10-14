@@ -87,6 +87,7 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Shared-kitchen invite revocation, role and member management, and a private recent-activity timeline
 - Household member names synchronized from Google or email profiles
 - Cooking flow that deducts ingredients from inventory
+- Household cooking history with recipe snapshots, servings, cook time, cook attribution, recent activity totals, and one-tap “Cook again”
 - Automatic conversion between compatible volume, weight, and count units for recipe matching, grocery planning, and cooking deductions
 - Missing-ingredient flow that builds a grocery list
 - Purchased-items flow back into the kitchen
@@ -94,6 +95,6 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts, cooking history, and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
+The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.

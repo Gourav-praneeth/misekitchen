@@ -357,3 +357,47 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .staple-group-create, .staple-add-form { grid-template-columns: 1fr; }
   .staple-group-create input, .staple-add-form textarea, .staple-editor-list input { font-size: 16px; }
 }
+
+/* Cooking history */
+.cooking-history { display: grid; gap: 14px; }
+.cooking-history-summary { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0; overflow: hidden; }
+.cooking-history-summary > div { display: flex; align-items: center; gap: 12px; padding: 18px 20px; }
+.cooking-history-summary > div + div { border-left: 1px solid #e1e3dc; }
+.cooking-history-summary svg { width: 20px; color: var(--green); }
+.cooking-history-summary p { margin: 0; }
+.cooking-history-summary strong, .cooking-history-summary small { display: block; }
+.cooking-history-summary strong { font: 600 22px 'Fraunces', serif; }
+.cooking-history-summary small { margin-top: 2px; color: #7d8981; font-size: 8px; }
+.cooking-history-list { padding: 21px; }
+.cooking-history-list > header { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #e1e3dc; }
+.cooking-history-list h2 { margin: 3px 0 0; font-size: 24px; }
+.cooking-history-list > header > small { color: #89938c; font-size: 8px; }
+.cooking-history-list ol { margin: 0; padding: 0; list-style: none; }
+.cooking-history-list li { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-width: 0; padding: 14px 2px; border-bottom: 1px solid #e7e7e0; }
+.cooking-history-list li:last-child { border-bottom: 0; }
+.cooking-history-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: #eeeee7; font-size: 22px; }
+.cooking-history-list li > div { min-width: 0; }
+.cooking-history-list li > div strong, .cooking-history-list li > div small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cooking-history-list li > div strong { font-size: 11px; }
+.cooking-history-list li > div small { margin-top: 3px; color: #879087; font-size: 8px; }
+.cooking-history-list li > p { margin: 0; color: #53685a; text-align: right; }
+.cooking-history-list li > p span, .cooking-history-list li > p small { display: block; }
+.cooking-history-list li > p span { font-size: 9px; font-weight: 800; }
+.cooking-history-list li > p small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 3px; color: #8a938b; font-size: 7px; }
+.cooking-history-list li > p svg { width: 10px; }
+.cooking-history-list li > button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 1px solid #cbd7cd; border-radius: 8px; background: #edf3eb; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
+.cooking-history-list li > button svg { width: 11px; }
+.cooking-history-list li > em { color: #969c96; font-size: 8px; font-style: normal; }
+@media (max-width: 700px) {
+  .cooking-history-summary { grid-template-columns: 1fr; }
+  .cooking-history-summary > div { padding: 13px 16px; }
+  .cooking-history-summary > div + div { border-top: 1px solid #e1e3dc; border-left: 0; }
+  .cooking-history-list { padding: 17px; }
+  .cooking-history-list > header { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .cooking-history-list li { grid-template-columns: 42px minmax(0, 1fr) auto; }
+  .cooking-history-list li > p { grid-column: 2 / -1; text-align: left; }
+  .cooking-history-list li > p small { justify-content: flex-start; }
+  .cooking-history-list li > button, .cooking-history-list li > em { grid-column: 3; grid-row: 1; }
+  .recipe-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .recipe-filters button { flex: 0 0 auto; }
+}
