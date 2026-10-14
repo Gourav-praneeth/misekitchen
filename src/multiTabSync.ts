@@ -27,7 +27,18 @@ export function isNewerKitchenMessage(currentRevision: number, messageRevision: 
 
 export function sameKitchenContents(first: Record<string, unknown>, second: Record<string, unknown>) {
   const withoutVolatileFields = (snapshot: Record<string, unknown>) => Object.fromEntries(
-    Object.entries(snapshot).filter(([key]) => key !== 'savedAt'),
+    Object.entries(snapshot).filter(([key]) => key !== 'savedAt').map(([key, value]) => {
+      if (!Array.isArray(value)) return [key, value]
+      const ordered = [...value].sort((a, b) => {
+        const identity = (item: unknown) => {
+          if (!item || typeof item !== 'object') return JSON.stringify(item)
+          const record = item as Record<string, unknown>
+          return String(record.id ?? `${record.name ?? ''}:${record.unit ?? ''}:${record.cookedAt ?? ''}`)
+        }
+        return identity(a).localeCompare(identity(b))
+      })
+      return [key, ordered]
+    }),
   )
   return JSON.stringify(withoutVolatileFields(first)) === JSON.stringify(withoutVolatileFields(second))
 }

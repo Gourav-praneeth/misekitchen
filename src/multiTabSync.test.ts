@@ -39,4 +39,11 @@ describe('multi-tab sync lease', () => {
     expect(sameKitchenContents(first, second)).toBe(true)
     expect(sameKitchenContents(first, { ...second, inventory: [{ id: 'milk', quantity: 2 }] })).toBe(false)
   })
+
+  it('ignores top-level collection ordering without hiding item changes', () => {
+    const first = { inventory: [{ id: 'milk', quantity: 1 }, { id: 'eggs', quantity: 6 }] }
+    const reordered = { inventory: [{ id: 'eggs', quantity: 6 }, { id: 'milk', quantity: 1 }] }
+    expect(sameKitchenContents(first, reordered)).toBe(true)
+    expect(sameKitchenContents(first, { inventory: [{ id: 'eggs', quantity: 5 }, { id: 'milk', quantity: 1 }] })).toBe(false)
+  })
 })

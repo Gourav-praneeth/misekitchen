@@ -327,8 +327,9 @@ function App() {
       if (message?.type !== 'kitchen-saved' || message.snapshot.householdId !== householdId) return
       if (!isNewerKitchenMessage(syncRevision.current, message.revision, message.senderId, tabId.current)) return
       const pending = readStoredKitchen('pending', session.user.id)
-      const matchesPending = pending?.householdId === householdId && sameKitchenContents(pending as unknown as Record<string, unknown>, message.snapshot as unknown as Record<string, unknown>)
-      if ((localChangesPending.current || syncConflict.current) && !matchesPending) {
+      const hasPending = pending?.householdId === householdId
+      const matchesPending = hasPending && sameKitchenContents(pending as unknown as Record<string, unknown>, message.snapshot as unknown as Record<string, unknown>)
+      if (syncConflict.current || (hasPending && !matchesPending)) {
         syncConflict.current = true
         setSyncState('conflict')
         return
@@ -375,6 +376,7 @@ function App() {
     const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     localChangesPending.current = true
     writeStoredKitchen('pending', session.user.id, snapshot)
+    setSyncState(isOnline ? 'syncing' : 'offline')
     const timer = window.setTimeout(async () => {
       if (!isOnline) { setSyncState('offline'); return }
       if (syncConflict.current) { setSyncState('conflict'); return }
