@@ -51,6 +51,7 @@ Exit criteria: a user can understand why a meal was suggested and act on it in o
 - [x] Separate the needed amount from the actual package quantity purchased.
 - [x] Confirm package count, package size, and unit before transferring purchases into the kitchen.
 - [x] Keep icons, universal-unit conversion, custom units, and purchased-to-kitchen transfer accurate.
+- [x] Scan purchased package barcodes during review, match them to the list, support unplanned purchases and repeated packages, and preserve product details in household memory.
 
 Exit criteria: shopping is fast on a phone, actual package quantities reach inventory, and no duplicate is inflated without enough source information.
 
@@ -116,6 +117,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 - **October 14, 2026:** Barcode scanning was pulled ahead of smarter recommendations and Meal Planner 2.1 because reliable product entry is foundational to accurate inventory, recipes, and grocery planning. After barcode beta validation, work returns to smarter recommendations, followed by Meal Planner 2.1.
 - **October 14, 2026:** Grocery List 2.1 moved ahead of Meal Planner 2.1. Source-aware grocery provenance is deferred; package confirmation, aisle order, store mode, and accurate purchased-to-kitchen transfer proceed independently.
+- **October 14, 2026:** Barcode lookup was connected to Grocery List 2.1 purchase review so actual package quantities can be captured without manual entry. This does not depend on deferred source-aware grocery provenance.
 
 ## How to maintain this roadmap
 

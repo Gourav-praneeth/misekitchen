@@ -56,7 +56,7 @@ export type Recipe = {
   imageUrl?: string | null
 }
 
-export type GroceryPurchase = {
+export type GroceryPurchase = ProductMetadata & {
   packageCount: number
   packageSize: number
   packageUnit: string

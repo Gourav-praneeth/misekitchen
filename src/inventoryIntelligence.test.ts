@@ -68,9 +68,9 @@ describe('duplicate-safe inventory intelligence', () => {
   })
 
   it('transfers the actual package purchase instead of the recipe requirement', () => {
-    const almonds = { name: 'Almonds', amount: 6, unit: 'almonds', checked: true, purchase: { packageCount: 2, packageSize: 500, packageUnit: 'g', location: 'Fridge' as const, expiresOn: '2026-11-01' } }
+    const almonds = { name: 'Almonds', amount: 6, unit: 'almonds', checked: true, purchase: { packageCount: 2, packageSize: 500, packageUnit: 'g', location: 'Fridge' as const, expiresOn: '2026-11-01', barcode: '4006381333931', brand: 'Market Nuts', productSource: 'open-food-facts' as const } }
     expect(purchasedGroceryAmount(almonds)).toEqual({ amount: 1000, unit: 'g' })
-    expect(inventoryItemFromGrocery(almonds, 'almonds-1')).toMatchObject({ quantity: 1000, unit: 'g', location: 'Fridge', expiresOn: '2026-11-01' })
+    expect(inventoryItemFromGrocery(almonds, 'almonds-1')).toMatchObject({ quantity: 1000, unit: 'g', location: 'Fridge', expiresOn: '2026-11-01', barcode: '4006381333931', brand: 'Market Nuts' })
   })
 
   it('gives every default recipe ingredient a specific grocery icon', () => {

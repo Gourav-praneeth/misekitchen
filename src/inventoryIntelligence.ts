@@ -119,5 +119,11 @@ export function inventoryItemFromGrocery(item: GroceryItem, id: string): Invento
     location: item.purchase?.location || profile?.location || 'Pantry',
     expiresIn,
     expiresOn,
+    barcode: item.purchase?.barcode || null,
+    brand: item.purchase?.brand || null,
+    productImageUrl: item.purchase?.productImageUrl || null,
+    packageAmount: item.purchase?.packageAmount || item.purchase?.packageSize || null,
+    packageUnit: item.purchase?.packageUnit || null,
+    productSource: item.purchase?.productSource || null,
   })
 }
