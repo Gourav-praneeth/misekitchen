@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchRecipes } from './recipeIntelligence'
+import { matchRecipes, recommendationGuidance } from './recipeIntelligence'
 import type { InventoryItem, Recipe } from './types'
 
 const recipe: Recipe = {
@@ -59,5 +59,24 @@ describe('matchRecipes', () => {
     expect(matches[0].id).toBe('first')
     expect(matches[0].planned).toBe('today')
     expect(matches[0].recommendationReasons[0]).toBe("On today's meal plan")
+  })
+
+  it('explains which ingredients would unlock a weak top match', () => {
+    const partialInventory = [{ ...inventory[0], quantity: 4 }]
+    const weakRecipe = { ...recipe, ingredients: [...recipe.ingredients, { name: 'Eggs', amount: 2, unit: 'whole' }] }
+    const matches = matchRecipes([weakRecipe], partialInventory)
+    const guidance = recommendationGuidance(matches, partialInventory)
+    expect(guidance?.kind).toBe('low-match')
+    expect(guidance?.message).toContain('Milk')
+    expect(guidance?.unlockItems).toContainEqual({ name: 'Milk', amount: 2, unit: 'cups', checked: false })
+  })
+
+  it('does not interrupt useful matches with low-match guidance', () => {
+    const matches = matchRecipes([recipe], inventory)
+    expect(recommendationGuidance(matches, inventory)).toBeNull()
+  })
+
+  it('guides an empty recipe collection', () => {
+    expect(recommendationGuidance([], inventory)).toMatchObject({ kind: 'empty', unlockItems: [] })
   })
 })

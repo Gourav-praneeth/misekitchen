@@ -21,6 +21,13 @@ export type RecipeMatch = Recipe & {
   recentlyCookedDays: number | null
 }
 
+export type RecommendationGuidance = {
+  kind: 'empty' | 'low-match'
+  title: string
+  message: string
+  unlockItems: GroceryItem[]
+}
+
 function dateKey(date: Date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -79,4 +86,32 @@ export function matchRecipes(recipeList: Recipe[], inventory: InventoryItem[], p
     if (recentlyCookedDays !== null && recentlyCookedDays <= 14) recommendationReasons.push(`Cooked ${recentlyCookedDays === 0 ? 'today' : `${recentlyCookedDays} day${recentlyCookedDays === 1 ? '' : 's'} ago`}`)
     return { ...recipe, missing, available, urgent, score, preferenceWarnings: warnings, recommendationReasons, planned, recentlyCookedDays }
   }).sort((a, b) => b.score - a.score || a.time - b.time)
+}
+
+export function recommendationGuidance(matches: RecipeMatch[], inventory: InventoryItem[]): RecommendationGuidance | null {
+  if (!matches.length) return {
+    kind: 'empty',
+    title: 'Build your recipe collection',
+    message: 'Add your own recipe or discover one to start getting kitchen-aware suggestions.',
+    unlockItems: [],
+  }
+
+  const best = matches[0]
+  if (best.missing.length === 0 || best.available >= 50) return null
+  if (!inventory.length) return {
+    kind: 'low-match',
+    title: 'Tell Mise what is in your kitchen',
+    message: `Add a few ingredients to see how close you are to making ${best.name}.`,
+    unlockItems: best.missing.slice(0, 3),
+  }
+
+  const unlockItems = best.missing.slice(0, 3)
+  const names = unlockItems.map((item) => item.name)
+  const itemList = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+  return {
+    kind: 'low-match',
+    title: 'A few ingredients unlock a better match',
+    message: `${itemList} would move ${best.name} beyond its current ${best.available}% kitchen match.`,
+    unlockItems,
+  }
 }

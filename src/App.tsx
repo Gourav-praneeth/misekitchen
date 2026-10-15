@@ -21,7 +21,7 @@ import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, l
 import { defaultMealReminderPreferences, mealReminderLabel, mealRemindersForToday, normalizeMealReminderPreferences, type MealReminder, type MealReminderPreferences } from './mealReminders'
 import { availableAmount, deductIngredients, formatAmount } from './measurements'
 import { isNewerKitchenMessage, releaseSyncLease, sameKitchenContents, syncLeaseKey, tryAcquireSyncLease } from './multiTabSync'
-import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
+import { matchRecipes, recommendationGuidance, type RecipeMatch, type RecommendationGuidance } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
 import { mergeRecipeIngredients, parseRecipeIngredients } from './recipeIngredients'
 import { scanReceiptImage } from './receiptScanner'
@@ -130,6 +130,7 @@ function App() {
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null)
   const [selectedRecipe, setSelectedRecipe] = useState<RecipeMatch | null>(null)
+  const [planningRecipe, setPlanningRecipe] = useState<RecipeMatch | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(!cloudEnabled)
@@ -454,6 +455,7 @@ function App() {
     () => mealRemindersForToday(mealPlan, recipeMatches, clock, mealReminderPreferences),
     [mealPlan, recipeMatches, clock, mealReminderPreferences],
   )
+  const recipeGuidance = useMemo(() => recommendationGuidance(recipeMatches, inventory), [recipeMatches, inventory])
 
   const urgentItems = [...inventory].filter((item) => {
     const days = daysUntilExpiration(item)
@@ -645,6 +647,17 @@ function App() {
     })
   }
 
+  function planRecommendedRecipe(recipe: RecipeMatch, date: string, mealSlot: MealSlot, servings: number) {
+    setMealPlan((current) => [
+      ...current.filter((entry) => !(entry.date === date && entry.mealSlot === mealSlot)),
+      { id: mealPlanEntryId(date, mealSlot), date, recipeId: recipe.id, servings, mealSlot },
+    ])
+    setPlanningRecipe(null)
+    const slot = mealSlots.find((candidate) => candidate.value === mealSlot)?.label || 'Meal'
+    const day = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    notify(`${recipe.name} planned for ${slot.toLowerCase()} on ${day}`)
+  }
+
   function saveCustomRecipe(recipe: Recipe) {
     setCustomRecipes((current) => current.some((entry) => entry.id === recipe.id)
       ? current.map((entry) => entry.id === recipe.id ? recipe : entry)
@@ -754,9 +767,9 @@ function App() {
         </header>
 
         <div className="page">
-          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} />}
+          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} guidance={recipeGuidance} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onAddToGrocery={addToGrocery} />}
           {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} guidance={recipeGuidance} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={addToGrocery} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onOpenKitchen={() => { setKitchenCategory('All'); setView('kitchen') }} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={addToGrocery} notify={notify} />}
           {view === 'grocery' && <Grocery grocery={grocery} stapleGroups={stapleGroups} staples={staples} inventory={inventory} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} notify={notify} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
@@ -771,6 +784,7 @@ function App() {
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
       {recipeEditorOpen && <RecipeEditor inventory={inventory} initialRecipe={editingRecipe || undefined} onClose={() => { setRecipeEditorOpen(false); setEditingRecipe(null) }} onSave={saveCustomRecipe} />}
       {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} onEdit={selectedRecipe.source === 'user' ? () => { setEditingRecipe(selectedRecipe); setSelectedRecipe(null); setRecipeEditorOpen(true) } : undefined} onDelete={() => void deleteRecipe(selectedRecipe)} />}
+      {planningRecipe && <RecommendationPlanner recipe={planningRecipe} onClose={() => setPlanningRecipe(null)} onPlan={(date, mealSlot, servings) => planRecommendedRecipe(planningRecipe, date, mealSlot, servings)} />}
       {toast && <div className="toast"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button onClick={toast.undo}><Undo2 size={14} /> Undo</button>}</div>}
     </div>
   )
@@ -793,10 +807,11 @@ function NumberField({ value, onValueChange, ...props }: Omit<React.InputHTMLAtt
   }} />
 }
 
-function Home({ displayName, inventory, counts, urgentItems, recipes, mealReminders, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe }: {
+function Home({ displayName, inventory, counts, urgentItems, recipes, guidance, mealReminders, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe, onRecipeAction, onPlanRecipe, onAddToGrocery }: {
   displayName: string;
   inventory: InventoryItem[]; counts: { category: Category; count: number }[]; urgentItems: InventoryItem[]; recipes: RecipeMatch[];
-  mealReminders: MealReminder[]; readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void
+  guidance: RecommendationGuidance | null; mealReminders: MealReminder[]; readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void;
+  onRecipeAction: (recipe: RecipeMatch) => void; onPlanRecipe: (recipe: RecipeMatch) => void; onAddToGrocery: (items: GroceryItem[]) => void
 }) {
   const best = recipes[0]
   const activeReminder = mealReminders.find((reminder) => reminder.due)
@@ -830,7 +845,8 @@ function Home({ displayName, inventory, counts, urgentItems, recipes, mealRemind
 
     <section className="cook-section">
       <div className="section-heading"><div><span className="eyebrow">Recommended for you</span><h2>What fits your kitchen now?</h2></div><button className="text-button" onClick={() => setView('recipes')}>Explore all {recipes.length} <ArrowRight size={15} /></button></div>
-      <div className="recipe-grid">{recipes.slice(0, 3).map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>
+      {guidance && <RecommendationNudge guidance={guidance} onAddToGrocery={onAddToGrocery} onOpenKitchen={() => openKitchen('All')} onAddRecipe={() => setView('recipes')} />}
+      <div className="recipe-grid">{recipes.slice(0, 3).map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} onPrimary={() => onRecipeAction(recipe)} onPlan={() => onPlanRecipe(recipe)} />)}</div>
     </section>
 
     <section className="quick-stats">
@@ -841,11 +857,34 @@ function Home({ displayName, inventory, counts, urgentItems, recipes, mealRemind
   </>
 }
 
-function RecipeCard({ recipe, featured, onClick }: { recipe: RecipeMatch; featured?: boolean; onClick: () => void }) {
-  return <button className={featured ? 'recipe-card featured' : 'recipe-card'} onClick={onClick} style={{ '--accent': recipe.accent } as React.CSSProperties}>
-    <div className="recipe-art">{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}{recipe.source === 'user' && <b>My recipe</b>}{recipe.source === 'spoonacular' && <b>Saved</b>}{recipe.preferenceWarnings.length > 0 && <i><TriangleAlert size={12} /> Check preferences</i>}{recipe.urgent > 0 && <em><Leaf size={13} /> Uses {recipe.urgent} use-soon</em>}</div>
-    <div className="recipe-info"><div className="match-line"><span className={recipe.missing.length ? 'match almost' : 'match'}>{recipe.missing.length ? `${recipe.available}% match` : 'Ready now'}</span><small><Clock3 size={13} /> {recipe.time} min</small></div><h3>{recipe.name}</h3><p>{recipe.description}</p><div className="recommendation-reasons" aria-label={`Why ${recipe.name} is recommended`}>{recipe.recommendationReasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div><div className="recipe-footer"><span>{recipe.protein}g protein</span><strong>{recipe.missing.length ? `Needs ${recipe.missing.length}` : 'Cook this'} <ArrowRight size={14} /></strong></div></div>
-  </button>
+function RecipeCard({ recipe, featured, onClick, onPrimary, onPlan }: { recipe: RecipeMatch; featured?: boolean; onClick: () => void; onPrimary: () => void; onPlan: () => void }) {
+  return <article className={featured ? 'recipe-card featured' : 'recipe-card'} style={{ '--accent': recipe.accent } as React.CSSProperties}>
+    <button className="recipe-card-main" onClick={onClick} aria-label={`Open ${recipe.name}`}>
+      <div className="recipe-art">{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : <span>{recipe.emoji}</span>}{recipe.source === 'user' && <b>My recipe</b>}{recipe.source === 'spoonacular' && <b>Saved</b>}{recipe.preferenceWarnings.length > 0 && <i><TriangleAlert size={12} /> Check preferences</i>}{recipe.urgent > 0 && <em><Leaf size={13} /> Uses {recipe.urgent} use-soon</em>}</div>
+      <div className="recipe-info"><div className="match-line"><span className={recipe.missing.length ? 'match almost' : 'match'}>{recipe.missing.length ? `${recipe.available}% match` : 'Ready now'}</span><small><Clock3 size={13} /> {recipe.time} min</small></div><h3>{recipe.name}</h3><p>{recipe.description}</p><div className="recommendation-reasons" aria-label={`Why ${recipe.name} is recommended`}>{recipe.recommendationReasons.slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div><div className="recipe-footer"><span>{recipe.protein}g protein</span><strong>View recipe <ArrowRight size={14} /></strong></div></div>
+    </button>
+    <div className="recipe-quick-actions"><button onClick={onPrimary}>{recipe.missing.length ? <><ShoppingBasket /> Add {recipe.missing.length} missing</> : <><CookingPot /> Cook now</>}</button><button onClick={onPlan}><CalendarDays /> Plan</button></div>
+  </article>
+}
+
+function RecommendationNudge({ guidance, onAddToGrocery, onOpenKitchen, onAddRecipe }: { guidance: RecommendationGuidance; onAddToGrocery: (items: GroceryItem[]) => void; onOpenKitchen: () => void; onAddRecipe: () => void }) {
+  return <aside className="recommendation-nudge">
+    <span><Sparkles /></span>
+    <div><strong>{guidance.title}</strong><p>{guidance.message}</p></div>
+    <div className="recommendation-nudge-actions">{guidance.unlockItems.length > 0 ? <button onClick={() => onAddToGrocery(guidance.unlockItems)}><ShoppingBasket /> Add {guidance.unlockItems.length} to grocery list</button> : <button onClick={onAddRecipe}><CirclePlus /> Add a recipe</button>}<button onClick={onOpenKitchen}><PackageOpen /> Review kitchen</button></div>
+  </aside>
+}
+
+function RecommendationPlanner({ recipe, onClose, onPlan }: { recipe: RecipeMatch; onClose: () => void; onPlan: (date: string, mealSlot: MealSlot, servings: number) => void }) {
+  const today = localDateKey(new Date())
+  const [date, setDate] = useState(today)
+  const [mealSlot, setMealSlot] = useState<MealSlot>('dinner')
+  const [servings, setServings] = useState(recipe.servings)
+  function submit(event: React.FormEvent) {
+    event.preventDefault()
+    onPlan(date, mealSlot, Math.max(1, servings))
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal recommendation-planner" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Plan from a recommendation</span><h2>Add {recipe.name}</h2><p>Choose when this meal fits your week.</p></div><button type="button" onClick={onClose} aria-label="Close meal planner"><X /></button></div><div className="recommendation-plan-recipe"><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}</small></p></div><div className="form-row"><label>Date<input type="date" min={today} value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Meal<select value={mealSlot} onChange={(event) => setMealSlot(event.target.value as MealSlot)}>{mealSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label></div><label>Servings<NumberField min="1" max="24" value={servings} onValueChange={setServings} /></label><button className="submit-button" type="submit"><CalendarDays /> Add to meal plan</button></form></div>
 }
 
 function Kitchen({ inventory, setInventory, category, setCategory, onAdd, onSmartAdd, onEdit }: { inventory: InventoryItem[]; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void }) {
@@ -868,19 +907,20 @@ function Freshness({ item }: { item: InventoryItem }) {
   return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
-function Recipes({ recipes, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onRemoveHistory, onAdd, onSaveDiscovered, onAddToGrocery }: { recipes: RecipeMatch[]; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onRemoveHistory: (entry: CookingHistoryEntry) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void }) {
+function Recipes({ recipes, guidance, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onRemoveHistory, onAdd, onSaveDiscovered, onAddToGrocery, onRecipeAction, onPlanRecipe, onOpenKitchen }: { recipes: RecipeMatch[]; guidance: RecommendationGuidance | null; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onRemoveHistory: (entry: CookingHistoryEntry) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void; onRecipeAction: (recipe: RecipeMatch) => void; onPlanRecipe: (recipe: RecipeMatch) => void; onOpenKitchen: () => void }) {
   const [sort, setSort] = useState<'match' | 'time' | 'urgent'>('match')
   const [filter, setFilter] = useState<'all' | 'mine' | 'ready' | 'discover' | 'history'>('all')
   const filtered = recipes.filter((recipe) => filter === 'mine' ? recipe.source !== 'mise' : filter === 'ready' ? recipe.missing.length === 0 : true)
   const sorted = [...filtered].sort((a, b) => sort === 'time' ? a.time - b.time : sort === 'urgent' ? b.urgent - a.urgent : b.score - a.score)
   return <section className="inner-page">
     <div className="page-title"><div><span className="eyebrow">Cook from what you have</span><h1>What can I make?</h1><p>Ranked by your kitchen, use-by dates, available time, preferences, recent meals, and meal plan.</p></div><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add my recipe</button></div>
+    {filter === 'all' && guidance && <RecommendationNudge guidance={guidance} onAddToGrocery={onAddToGrocery} onOpenKitchen={onOpenKitchen} onAddRecipe={onAdd} />}
     <div className="recipe-controls"><div className="recipe-filters">{([['all', 'All recipes'], ['mine', 'My saved'], ['ready', 'Ready now'], ['discover', 'Discover'], ['history', `History${cookingHistory.length ? ` ${cookingHistory.length}` : ''}`]] as const).map(([value, label]) => <button className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'discover' && <Sparkles size={12} />}{value === 'history' && <Clock3 size={12} />}{label}</button>)}</div>{filter !== 'discover' && filter !== 'history' && <label className="recipe-sort">Sort<select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="match">Best match</option><option value="time">Quickest</option><option value="urgent">Uses food soon</option></select></label>}</div>
     {filter === 'discover'
       ? <DiscoverRecipes inventory={inventory} preferences={preferences} accessToken={accessToken} savedExternalIds={savedExternalIds} onSaveDiscovered={onSaveDiscovered} onAddToGrocery={onAddToGrocery} />
       : filter === 'history'
         ? <CookingHistory entries={cookingHistory} recipes={recipes} onOpenRecipe={setSelectedRecipe} onRemove={onRemoveHistory} />
-        : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
+        : <><div className="recipe-grid full">{sorted.map((recipe, index) => <RecipeCard key={recipe.id} recipe={recipe} featured={index === 0} onClick={() => setSelectedRecipe(recipe)} onPrimary={() => onRecipeAction(recipe)} onPlan={() => onPlanRecipe(recipe)} />)}</div>{!sorted.length && <Empty title="No recipes in this view" copy="Try another filter or add a few more ingredients to your kitchen." />}</>}
   </section>
 }
 

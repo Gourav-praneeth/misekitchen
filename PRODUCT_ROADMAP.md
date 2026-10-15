@@ -30,7 +30,7 @@ Remaining validation:
 
 Exit criteria: scanning is reliable enough for regular grocery unloading without creating incorrect inventory or trapping the user when lookup fails.
 
-### 2. Smarter recommendations — In progress
+### 2. Smarter recommendations — Done
 
 Make Overview and recipe suggestions more useful than a simple ingredient-match ranking.
 
@@ -38,8 +38,8 @@ Make Overview and recipe suggestions more useful than a simple ingredient-match 
 - [x] Explain each recommendation with clear reasons such as “uses two ingredients expiring soon” or “ready in 20 minutes.”
 - [x] Avoid repeatedly recommending recently cooked meals when alternatives exist.
 - [x] Prefer recipes already planned for today or the next seven days.
-- [ ] Offer useful actions directly from a recommendation: cook, add missing items, save, or place in the meal plan.
-- [ ] Add empty and low-match states that tell the user what would unlock better suggestions.
+- [x] Offer useful actions directly from a recommendation: cook or add missing items, open saved recipes, and place a meal in the plan.
+- [x] Add empty and low-match states that tell the user what would unlock better suggestions.
 - [x] Keep recommendation logic deterministic and testable before considering paid AI services.
 
 Exit criteria: a user can understand why a meal was suggested and act on it in one or two taps.
