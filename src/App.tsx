@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowDown, ArrowRight, ArrowUp, BellRing, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy,
+  ArrowDown, ArrowRight, ArrowUp, BellRing, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy, Flashlight,
   ExternalLink, House, KeyRound, Leaf, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserPlus, UserRound, UsersRound, WifiOff, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
+import { inventoryItemFromBarcodeProduct } from './barcodeInventory'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
@@ -23,6 +24,8 @@ import { matchRecipes, type RecipeMatch } from './recipeIntelligence'
 import { recipeIcons } from './recipeIcons'
 import { mergeRecipeIngredients, parseRecipeIngredients } from './recipeIngredients'
 import { scanReceiptImage } from './receiptScanner'
+import { lookupBarcodeProduct, ProductNotFoundError } from './productLookup'
+import { isValidBarcode, normalizeBarcode, type BarcodeProduct } from './productIdentity'
 import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
@@ -116,6 +119,7 @@ function App() {
   })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
+  const [barcodeOpen, setBarcodeOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
@@ -741,7 +745,8 @@ function App() {
       </main>
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} merged with your existing ingredient` : `${item.name} added to your kitchen`) }} />}
-      {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onAdd={addSmartItems} />}
+      {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setBarcodeOpen(false); notify(result.merged ? `${item.name} merged with your existing product` : `${item.name} added to your kitchen`) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
@@ -1437,7 +1442,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
   </section>
 }
 
-function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
+function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onScanBarcode: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
   const [entry, setEntry] = useState('2 lb chicken breast, a bag of spinach, 6 eggs')
   const [items, setItems] = useState<SmartReviewItem[]>([])
   const [scan, setScan] = useState<{ phase: 'idle' | 'scanning' | 'ready' | 'error'; progress: number; message: string }>({ phase: 'idle', progress: 0, message: '' })
@@ -1491,6 +1496,7 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}>
     <div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Smart Entry 2.0</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose} aria-label="Close smart add"><X /></button></div>
     <p className="modal-intro">Scan a receipt, type naturally, or paste a list. Mise turns it into editable ingredient suggestions before anything is saved.</p>
+    <button type="button" className="barcode-launch" onClick={onScanBarcode}><span><Camera /></span><div><strong>Scan a product barcode</strong><small>Use UPC, EAN, or GTIN to identify a packaged grocery.</small></div><ArrowRight /></button>
     <div className="receipt-scan">
       <input ref={receiptInput} className="receipt-file-input" type="file" accept="image/*" capture="environment" onChange={(event) => void scanReceipt(event.target.files?.[0])} />
       <button type="button" className="receipt-scan-button" disabled={scan.phase === 'scanning'} onClick={() => receiptInput.current?.click()}><Camera size={19} /> {scan.phase === 'scanning' ? 'Scanning receipt…' : 'Scan receipt photo'}</button>
@@ -1510,6 +1516,124 @@ function SmartAdd({ inventory, onClose, onAdd }: { inventory: InventoryItem[]; o
         {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
       </article>
     })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}
+  </section></div>
+}
+
+function BarcodeScanner({ inventory, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; accessToken: string; onClose: () => void; onAdd: (item: InventoryItem) => void }) {
+  const [phase, setPhase] = useState<'start' | 'camera' | 'lookup' | 'review'>('start')
+  const [barcode, setBarcode] = useState('')
+  const [message, setMessage] = useState('')
+  const [product, setProduct] = useState<BarcodeProduct | null>(null)
+  const [draft, setDraft] = useState<InventoryItem | null>(null)
+  const [packageCount, setPackageCount] = useState(1)
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
+  const video = useRef<HTMLVideoElement>(null)
+  const scannerControls = useRef<{ stop: () => void; switchTorch?: (on: boolean) => Promise<void> } | null>(null)
+
+  function stopCamera() {
+    scannerControls.current?.stop()
+    scannerControls.current = null
+    setTorchAvailable(false)
+    setTorchOn(false)
+  }
+
+  useEffect(() => () => stopCamera(), [])
+
+  async function identify(rawBarcode: string) {
+    const code = normalizeBarcode(rawBarcode)
+    setBarcode(code)
+    if (!isValidBarcode(code)) { setMessage('Scan or enter a valid UPC, EAN, or GTIN barcode.'); setPhase('start'); return }
+    stopCamera()
+    setMessage('Looking up this product…')
+    setPhase('lookup')
+    try {
+      const found = await lookupBarcodeProduct(code, accessToken)
+      setProduct(found)
+      setDraft(inventoryItemFromBarcodeProduct(found, `barcode-${code}-${Date.now()}`))
+      setMessage('Product found. Check the details before adding it.')
+      setPhase('review')
+    } catch (error) {
+      if (error instanceof ProductNotFoundError) {
+        const manual: BarcodeProduct = { barcode: code, name: 'Packaged product', productSource: 'household' }
+        setProduct(manual)
+        setDraft(inventoryItemFromBarcodeProduct(manual, `barcode-${code}-${Date.now()}`))
+        setMessage('This barcode is not in Open Food Facts yet. Add the product details once and Mise will keep the barcode with it.')
+        setPhase('review')
+        return
+      }
+      setMessage(errorMessage(error, 'Product lookup failed. Enter the code again or add the ingredient manually.'))
+      setPhase('start')
+    }
+  }
+
+  async function startCamera() {
+    setMessage('Starting the rear camera…')
+    setPhase('camera')
+    try {
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const reader = new BrowserMultiFormatReader(undefined, { delayBetweenScanAttempts: 100, delayBetweenScanSuccess: 800 })
+      const controls = await reader.decodeFromConstraints({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      }, video.current || undefined, (result) => {
+        if (!result) return
+        controls.stop()
+        void identify(result.getText())
+      })
+      scannerControls.current = controls
+      setTorchAvailable(typeof controls.switchTorch === 'function')
+      setMessage('Center the barcode inside the frame.')
+    } catch (error) {
+      stopCamera()
+      setPhase('start')
+      const denied = error instanceof DOMException && ['NotAllowedError', 'PermissionDeniedError'].includes(error.name)
+      setMessage(denied ? 'Camera access was denied. Allow camera access in Safari settings or enter the barcode below.' : 'The camera could not start. You can enter the barcode below instead.')
+    }
+  }
+
+  function updateDraft(updates: Partial<InventoryItem>) {
+    setDraft((current) => current ? { ...current, ...updates } : current)
+  }
+
+  function updatePackageCount(count: number) {
+    const next = Math.max(1, count)
+    setPackageCount(next)
+    if (draft?.packageAmount && draft.packageUnit) updateDraft({ quantity: Number((draft.packageAmount * next).toFixed(3)), unit: draft.packageUnit })
+  }
+
+  async function toggleTorch() {
+    if (!scannerControls.current?.switchTorch) return
+    const next = !torchOn
+    try { await scannerControls.current.switchTorch(next); setTorchOn(next) } catch { setTorchAvailable(false) }
+  }
+
+  const duplicate = draft ? inventory.find((item) => sameFoodAndUnit(item, draft)) : null
+  const dateWarning = draft ? expirationWarning(draft.expiresOn, getFoodIntelligence(draft.name)?.profile, draft.location) : null
+
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal barcode-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="modal-head"><div><span className="eyebrow"><Camera size={12} /> Smart Entry</span><h2>Scan a product</h2></div><button type="button" onClick={() => { stopCamera(); onClose() }} aria-label="Close barcode scanner"><X /></button></div>
+    {phase !== 'review' && <>
+      <p className="modal-intro">Scan a packaged grocery barcode, or enter its numbers manually. You will review everything before it reaches your kitchen.</p>
+      {phase === 'camera' ? <div className="barcode-camera"><video ref={video} autoPlay muted playsInline /><div className="barcode-frame"><span /></div>{torchAvailable && <button type="button" onClick={() => void toggleTorch()}><Flashlight /> {torchOn ? 'Light off' : 'Light on'}</button>}</div>
+        : <button type="button" className="start-camera-button" disabled={phase === 'lookup'} onClick={() => void startCamera()}><Camera /> Use rear camera</button>}
+      <div className="barcode-status" role="status" aria-live="polite">{phase === 'lookup' && <i />}{message || 'Works with UPC-A, UPC-E, EAN-8, EAN-13, and GTIN labels.'}</div>
+      <div className="smart-divider"><span>or enter the numbers</span></div>
+      <form className="barcode-manual" onSubmit={(event) => { event.preventDefault(); void identify(barcode) }}><label>Barcode<input inputMode="numeric" autoComplete="off" value={barcode} onChange={(event) => setBarcode(normalizeBarcode(event.target.value).slice(0, 14))} placeholder="e.g. 3017624010701" /></label><button type="submit" disabled={phase === 'lookup' || !barcode}>Find product <ArrowRight /></button></form>
+    </>}
+    {phase === 'review' && draft && product && <form className="barcode-review" onSubmit={(event) => { event.preventDefault(); if (draft.name.trim() && draft.quantity > 0) onAdd({ ...draft, expiresIn: daysUntilDate(draft.expiresOn) }) }}>
+      <div className="product-preview">{draft.productImageUrl ? <img src={draft.productImageUrl} alt="" /> : <span>{draft.emoji}</span>}<div><small>{draft.brand || (draft.productSource === 'household' ? 'Household product' : 'Open Food Facts')}</small><strong>{product.name}</strong><em>{barcode}</em></div><button type="button" onClick={() => { setProduct(null); setDraft(null); setPhase('start'); setMessage('') }}>Scan again</button></div>
+      <div className="barcode-status ready">{message}</div>
+      <label>Ingredient name<input autoFocus required value={draft.name} onChange={(event) => { const name = event.target.value; const intelligence = getFoodIntelligence(name); updateDraft({ name, ...(intelligence ? { emoji: intelligence.profile.emoji, category: intelligence.profile.category, location: intelligence.profile.location } : {}) }) }} /></label>
+      <div className="form-row"><label>Packages<NumberField min="1" step="1" value={packageCount} onValueChange={updatePackageCount} /></label><label>Total quantity<NumberField min="0.01" step="0.01" value={draft.quantity} onValueChange={(quantity) => updateDraft({ quantity })} /></label></div>
+      <div className="form-row"><label>Unit<input required value={draft.unit} onChange={(event) => updateDraft({ unit: event.target.value })} /></label><label>Category<select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label></div>
+      <div className="form-row"><label>Stored in<select value={draft.location} onChange={(event) => updateDraft({ location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use-by date<input type="date" value={draft.expiresOn || ''} onChange={(event) => updateDraft({ expiresOn: event.target.value || null })} /></label></div>
+      {draft.packageAmount && draft.packageUnit && <p className="package-note">Each package contains {formatAmount(draft.packageAmount)} {draft.packageUnit}. Mise stores the total so recipe measurements can be deducted accurately.</p>}
+      {dateWarning && <div className="expiration-warning"><TriangleAlert /> {dateWarning}</div>}
+      {duplicate && <div className="duplicate-product"><Copy /><span><strong>Already in your kitchen</strong>This will merge into {duplicate.quantity} {duplicate.unit} of {duplicate.name}.</span></div>}
+      <p className="product-data-note"><TriangleAlert /> Product information can be incomplete. Always verify the package label for allergens and use-by dates.</p>
+      <button className="submit-button" disabled={!draft.name.trim() || draft.quantity <= 0}>Add to my kitchen <ArrowRight /></button>
+    </form>}
   </section></div>
 }
 
@@ -1574,7 +1698,7 @@ function AddFood({ onClose, onAdd, initialItem }: { onClose: () => void; onAdd: 
   }
   function submit(event: React.FormEvent) {
     event.preventDefault(); if (!name.trim()) return
-    onAdd({ id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity, unit, category, location, expiresIn: daysUntilDate(expiresOn), expiresOn: expiresOn || null })
+    onAdd({ ...initialItem, id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity, unit, category, location, expiresIn: daysUntilDate(expiresOn), expiresOn: expiresOn || null })
   }
   return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2></div><button type="button" onClick={onClose} aria-label="Close ingredient form"><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label>{!initialItem && intelligence && <div className="food-intelligence-suggestion"><span>{intelligence.profile.emoji}</span><div><strong>{intelligence.profile.name}</strong><small>{intelligence.profile.category} · {intelligence.profile.location} · about {intelligence.profile.shelfLifeDays ?? '—'} days</small></div><button type="button" onClick={applyIntelligence}>Use suggestions</button></div>}<fieldset className="icon-picker ingredient-icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Quantity<NumberField min="0.1" step="0.1" value={quantity} onValueChange={setQuantity} /></label><label>Unit<input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="items" /></label></div><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => { const nextLocation = e.target.value as Location; setLocation(nextLocation); if (!initialItem && intelligence) setExpiresOn(suggestedExpirationDate(intelligence.profile, nextLocation, freshnessState) || '') }}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><div className="form-row">{!initialItem && intelligence && <label>Freshness status<select value={freshnessState} onChange={(e) => { const nextState = e.target.value as FreshnessState; setFreshnessState(nextState); setExpiresOn(suggestedExpirationDate(intelligence.profile, location, nextState) || '') }}><option value="purchased">Purchased today</option><option value="opened">Opened today</option></select></label>}<label>Use-by date<input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} /></label></div>{dateWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {dateWarning}</div>}<button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
 }

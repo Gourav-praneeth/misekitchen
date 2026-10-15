@@ -404,3 +404,56 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .recipe-filters button { flex: 0 0 auto; }
 }
 @media (max-width: 760px) { .sync-state.conflict { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; font-size: 0; }.sync-state.conflict svg { width: 15px; } }
+
+/* Barcode scanning */
+.barcode-launch { display: grid; grid-template-columns: 42px 1fr auto; align-items: center; gap: 11px; width: 100%; margin-bottom: 10px; padding: 12px; border: 1px solid #9db8a2; border-radius: 12px; background: #e3ede1; color: var(--green); text-align: left; cursor: pointer; }
+.barcode-launch > span { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; background: white; }
+.barcode-launch svg { width: 18px; }
+.barcode-launch > svg { width: 15px; }
+.barcode-launch strong, .barcode-launch small { display: block; }
+.barcode-launch strong { font-size: 11px; }
+.barcode-launch small { margin-top: 3px; color: #6f7e73; font-size: 9px; line-height: 1.35; }
+.barcode-modal { width: min(560px, 100%); }
+.start-camera-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px; border: 0; border-radius: 12px; background: var(--green); color: white; font-size: 12px; font-weight: 800; cursor: pointer; }
+.start-camera-button:disabled { opacity: .6; cursor: wait; }
+.barcode-camera { position: relative; overflow: hidden; min-height: 280px; border-radius: 14px; background: #17251e; }
+.barcode-camera video { display: block; width: 100%; height: 300px; object-fit: cover; }
+.barcode-frame { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.barcode-frame span { width: 74%; height: 34%; border: 2px solid rgba(255,255,255,.9); border-radius: 13px; box-shadow: 0 0 0 999px rgba(7,16,11,.28); }
+.barcode-camera > button { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 0; border-radius: 9px; background: rgba(251,250,246,.92); color: var(--green); font-size: 9px; font-weight: 800; cursor: pointer; }
+.barcode-camera > button svg { width: 14px; }
+.barcode-status { display: flex; align-items: center; gap: 7px; min-height: 34px; margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: #eef1eb; color: #68776d; font-size: 9px; line-height: 1.4; }
+.barcode-status.ready { background: #e5efe3; color: #3f6f4e; }
+.barcode-status i { width: 12px; height: 12px; flex: 0 0 auto; border: 2px solid #9aac9e; border-top-color: var(--green); border-radius: 50%; animation: spin .7s linear infinite; }
+.barcode-manual { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
+.barcode-manual label { margin: 0; }
+.barcode-manual button { min-height: 40px; display: flex; align-items: center; gap: 5px; padding: 9px 12px; border: 0; border-radius: 9px; background: #e3ece1; color: var(--green); font-size: 9px; font-weight: 800; cursor: pointer; }
+.barcode-manual button:disabled { opacity: .45; }
+.barcode-manual svg { width: 13px; }
+.product-preview { display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 11px; margin-bottom: 11px; padding: 11px; border: 1px solid #d8ddd4; border-radius: 12px; background: #f3f3ed; }
+.product-preview > img, .product-preview > span { width: 64px; height: 64px; border-radius: 10px; background: white; object-fit: contain; }
+.product-preview > span { display: grid; place-items: center; font-size: 31px; }
+.product-preview small, .product-preview strong, .product-preview em { display: block; }
+.product-preview small { color: #768279; font-size: 8px; }
+.product-preview strong { margin-top: 3px; font-size: 12px; }
+.product-preview em { margin-top: 3px; color: #929891; font-size: 8px; font-style: normal; }
+.product-preview button { padding: 7px 9px; border: 1px solid #cbd6ca; border-radius: 8px; background: white; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }
+.barcode-review .barcode-status { margin: 0 0 14px; }
+.package-note, .product-data-note { margin: 10px 0 0; color: #738078; font-size: 9px; line-height: 1.5; }
+.product-data-note { display: flex; align-items: flex-start; gap: 6px; color: #886e55; }
+.product-data-note svg { width: 14px; flex: 0 0 auto; }
+.duplicate-product { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-radius: 9px; background: #e6eee3; color: #4f6e58; }
+.duplicate-product svg { width: 16px; }
+.duplicate-product strong { display: block; font-size: 10px; }
+.duplicate-product span { font-size: 9px; }
+@media (max-width: 520px) {
+  .barcode-modal { padding: 22px 18px; }
+  .barcode-camera, .barcode-camera video { min-height: 250px; height: 250px; }
+  .barcode-manual { grid-template-columns: 1fr; }
+  .barcode-manual button { justify-content: center; }
+  .product-preview { grid-template-columns: 54px 1fr; }
+  .product-preview > img, .product-preview > span { width: 54px; height: 54px; }
+  .product-preview button { grid-column: 1 / -1; min-height: 34px; }
+  .barcode-launch { grid-template-columns: 38px 1fr auto; }
+  .barcode-launch > span { width: 38px; height: 38px; }
+}
