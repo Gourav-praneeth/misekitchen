@@ -1701,6 +1701,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
 function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onScanBarcode: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
   const [entry, setEntry] = useState('2 lb chicken breast, a bag of spinach, 6 eggs')
   const [items, setItems] = useState<SmartReviewItem[]>([])
+  const [ignoredReceiptLines, setIgnoredReceiptLines] = useState<string[]>([])
   const [scan, setScan] = useState<{ phase: 'idle' | 'scanning' | 'ready' | 'error'; progress: number; message: string }>({ phase: 'idle', progress: 0, message: '' })
   const receiptInput = useRef<HTMLInputElement>(null)
   const scanController = useRef<AbortController | null>(null)
@@ -1715,6 +1716,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   }
 
   function understand() {
+    setIgnoredReceiptLines([])
     review(entry)
   }
 
@@ -1724,6 +1726,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
     const controller = new AbortController()
     scanController.current = controller
     setItems([])
+    setIgnoredReceiptLines([])
     setScan({ phase: 'scanning', progress: 0, message: `Preparing ${file.name || 'receipt photo'}…` })
     try {
       const result = await scanReceiptImage(file, ({ progress, status }) => {
@@ -1731,9 +1734,12 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
         const label = status.includes('recognizing') ? 'Reading receipt text' : 'Preparing receipt scanner'
         setScan({ phase: 'scanning', progress: percent, message: `${label}…` })
       }, controller.signal)
-      setEntry(result.text)
-      review(result.text)
-      setScan({ phase: 'ready', progress: 100, message: 'Receipt text extracted. Review the highlighted details below.' })
+      const combinedText = [result.text, result.reviewText].filter(Boolean).join('\n')
+      setEntry(combinedText)
+      review(combinedText)
+      setIgnoredReceiptLines(result.ignoredLines)
+      const reviewCount = result.reviewText ? result.reviewText.split('\n').filter(Boolean).length : 0
+      setScan({ phase: 'ready', progress: 100, message: `Receipt processed. ${reviewCount ? `${reviewCount} uncertain line${reviewCount === 1 ? '' : 's'} need review. ` : ''}${result.ignoredLines.length} receipt line${result.ignoredLines.length === 1 ? '' : 's'} ignored.` })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setScan({ phase: 'error', progress: 0, message: error instanceof Error ? error.message : 'The receipt could not be scanned. Try another photo.' })
@@ -1748,6 +1754,29 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   }
 
   const reviewCount = items.filter((item) => item.confidence === 'low').length
+  const readyItems = items.filter((item) => item.confidence !== 'low')
+  const reviewItems = items.filter((item) => item.confidence === 'low')
+
+  function restoreIgnoredLine(line: string) {
+    const restored = parseSmartEntry(line).map((item) => ({
+      ...withExpirationDate(item),
+      confidence: 'low' as const,
+      explanation: 'Restored from ignored receipt text · check every detail',
+      merge: inventory.some((existing) => sameFoodAndUnit(existing, item)),
+    }))
+    setItems((current) => [...current, ...restored])
+    setIgnoredReceiptLines((current) => current.filter((entryLine) => entryLine !== line))
+  }
+
+  function renderReviewItem(item: SmartReviewItem) {
+    const duplicate = inventory.find((existing) => sameFoodAndUnit(existing, item))
+    return <article className="smart-review-card" key={item.id}>
+      <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
+      <div className="smart-review-fields"><label>Quantity<NumberField aria-label={`Quantity for ${item.name}`} min="0.1" step="0.1" value={item.quantity} onValueChange={(quantity) => updateItem(item.id, { quantity })} /></label><label>Unit<UnitPicker value={item.unit} onChange={(unit) => updateItem(item.id, { unit })} ariaLabel={`Unit for ${item.name}`} required /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => { const nextLocation = event.target.value as Location; updateItem(item.id, { location: nextLocation, expirationWarning: expirationWarning(item.expiresOn, getFoodIntelligence(item.name)?.profile, nextLocation) }) }}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => { const nextDate = event.target.value || null; updateItem(item.id, { expiresOn: nextDate, expiresIn: daysUntilDate(nextDate), expirationWarning: expirationWarning(nextDate, getFoodIntelligence(item.name)?.profile, item.location) }) }} /></label></div><div className={`smart-confidence ${item.confidence}`}><Sparkles size={12} /> {item.explanation}</div>
+      {item.expirationWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {item.expirationWarning}</div>}
+      {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
+    </article>
+  }
 
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal smart-modal" onMouseDown={(event) => event.stopPropagation()}>
     <div className="modal-head"><div><span className="eyebrow"><Sparkles size={12} /> Smart Entry 2.0</span><h2>Tell Mise what you bought</h2></div><button type="button" onClick={onClose} aria-label="Close smart add"><X /></button></div>
@@ -1763,15 +1792,8 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
     <label>Grocery note<textarea value={entry} onChange={(event) => { setEntry(event.target.value); setScan({ phase: 'idle', progress: 0, message: '' }) }} placeholder={'Try one item per line:\n2 lb frozen chicken, use within 30 days\n6 eggs\n500 g rice'} /></label>
     <div className="smart-examples"><span>Try an example:</span><button type="button" onClick={() => setEntry('• 4 avocados $5.99\n• 2 cartons of milk $7.98\n• a box of blueberries $4.25')}>Receipt lines</button><button type="button" onClick={() => setEntry('2 lb frozen chicken use within 30 days, 500 g rice, broccoli and a lemon')}>Freezer restock</button></div>
     <button type="button" className="understand-button" onClick={understand} disabled={!entry.trim() || scan.phase === 'scanning'}><Sparkles size={16} /> Review my list</button>
-    {items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>{reviewCount ? `${reviewCount} need${reviewCount === 1 ? 's' : ''} a quick check` : 'All details recognized'}</span></div><div className="smart-review-list">{items.map((item) => {
-      const duplicate = inventory.find((existing) => sameFoodAndUnit(existing, item))
-      return <article className="smart-review-card" key={item.id}>
-        <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
-        <div className="smart-review-fields"><label>Quantity<NumberField aria-label={`Quantity for ${item.name}`} min="0.1" step="0.1" value={item.quantity} onValueChange={(quantity) => updateItem(item.id, { quantity })} /></label><label>Unit<UnitPicker value={item.unit} onChange={(unit) => updateItem(item.id, { unit })} ariaLabel={`Unit for ${item.name}`} required /></label><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => { const nextLocation = event.target.value as Location; updateItem(item.id, { location: nextLocation, expirationWarning: expirationWarning(item.expiresOn, getFoodIntelligence(item.name)?.profile, nextLocation) }) }}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => { const nextDate = event.target.value || null; updateItem(item.id, { expiresOn: nextDate, expiresIn: daysUntilDate(nextDate), expirationWarning: expirationWarning(nextDate, getFoodIntelligence(item.name)?.profile, item.location) }) }} /></label></div><div className={`smart-confidence ${item.confidence}`}><Sparkles size={12} /> {item.explanation}</div>
-        {item.expirationWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {item.expirationWarning}</div>}
-        {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? `Add to the existing ${duplicate.quantity} ${duplicate.unit}` : 'Keep this as a separate item'}</span></label>}
-      </article>
-    })}</div><button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}
+    {items.length > 0 && <div className="smart-results"><div className="smart-results-head"><strong>{items.length} ingredient{items.length === 1 ? '' : 's'} found</strong><span>{reviewCount ? `${reviewCount} need${reviewCount === 1 ? 's' : ''} a quick check` : 'All details recognized'}</span></div>{readyItems.length > 0 && <section className="receipt-review-group"><div><strong>Ready to add</strong><span>{readyItems.length} recognized</span></div><div className="smart-review-list">{readyItems.map(renderReviewItem)}</div></section>}{reviewItems.length > 0 && <section className="receipt-review-group needs-review"><div><strong>Needs review</strong><span>Confirm the product name and details</span></div><div className="smart-review-list">{reviewItems.map(renderReviewItem)}</div></section>}<button className="submit-button" type="button" disabled={!items.some((item) => item.name.trim() && item.quantity > 0)} onClick={() => onAdd(items)}>Save {items.length} ingredient{items.length === 1 ? '' : 's'} <ArrowRight /></button></div>}
+    {ignoredReceiptLines.length > 0 && <details className="receipt-ignored"><summary><span>Ignored receipt text</span><small>{ignoredReceiptLines.length} payment, discount, non-food, or unreadable line{ignoredReceiptLines.length === 1 ? '' : 's'}</small></summary><div>{ignoredReceiptLines.map((line) => <article key={line}><span>{line}</span><button type="button" onClick={() => restoreIgnoredLine(line)}>Restore</button></article>)}</div></details>}
   </section></div>
 }
 
