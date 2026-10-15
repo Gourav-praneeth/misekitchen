@@ -63,10 +63,7 @@ Exit criteria: planning a useful week on a phone is faster than building the sam
 - Carry recommendation and meal-plan context into grocery items.
 - Show which recipe or planned meal requested an item.
 - Improve duplicate resolution when manual, staple, recipe, and meal-plan additions overlap.
-- Add a clear **Add one staple** flow beside bulk entry, with name, quantity, unit, and automatic food icon suggestions.
-- Replace free-text-only unit fields with a shared searchable unit picker across inventory, groceries, staples, and recipe ingredients.
-- Group common units by Count & package, Weight, Volume, and Cooking measures; prioritize the food's suggested unit and recently used choices.
-- Keep an **Add custom unit** option for values such as bunch, tray, or jar. Known aliases should normalize for conversion while custom units remain unchanged and are never converted incorrectly.
+- Consider adding unit search and recently used choices if beta testing shows the grouped picker is too slow for larger unit lists.
 - Add optional aisle ordering and a compact in-store mode for mobile.
 - Keep icons, package quantities, universal-unit conversion, and purchased-to-kitchen transfer accurate.
 
@@ -110,6 +107,8 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 - Universal ingredient measurement conversion.
 - Multi-tab and offline-safe cloud synchronization.
 - Barcode-ready product data, mobile scanner, Open Food Facts lookup, scan queue, household memory, and failure recovery.
+- Single-item staple entry with food suggestions, alongside the existing bulk workflow.
+- A shared grouped unit picker across inventory, groceries, staples, recipes, Smart Entry review, and barcode review, with custom-unit support.
 
 ## Decision log
 
