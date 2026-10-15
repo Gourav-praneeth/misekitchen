@@ -6,7 +6,9 @@ describe('barcode product lookup client', () => {
     const fetcher = vi.fn(async () => Response.json({ data: { barcode: '034000470693', name: 'Milk', productSource: 'open-food-facts' } }))
     const product = await lookupBarcodeProduct('0 34000-47069 3', 'session-token', fetcher as typeof fetch)
     expect(product).toMatchObject({ barcode: '034000470693', name: 'Milk' })
-    expect(fetcher).toHaveBeenCalledWith('/api/product?barcode=034000470693', { headers: { Authorization: 'Bearer session-token' } })
+    expect(fetcher).toHaveBeenCalledWith('/api/product?barcode=034000470693', expect.objectContaining({
+      headers: { Authorization: 'Bearer session-token' }, signal: expect.any(AbortSignal),
+    }))
   })
 
   it('distinguishes an unknown product so the UI can offer manual entry', async () => {
@@ -19,5 +21,19 @@ describe('barcode product lookup client', () => {
     const fetcher = vi.fn()
     await expect(lookupBarcodeProduct('12345', 'session-token', fetcher as typeof fetch)).rejects.toThrow('valid UPC')
     expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('retries one temporary network failure', async () => {
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(Response.json({ data: { barcode: '034000470693', name: 'Milk', productSource: 'open-food-facts' } }))
+    await expect(lookupBarcodeProduct('034000470693', 'session-token', fetcher as typeof fetch)).resolves.toMatchObject({ name: 'Milk' })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a signed-out response', async () => {
+    const fetcher = vi.fn(async () => Response.json({ error: 'Sign in again.' }, { status: 401 }))
+    await expect(lookupBarcodeProduct('034000470693', 'session-token', fetcher as typeof fetch)).rejects.toThrow('Sign in again')
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 })

@@ -33,7 +33,7 @@ export function sameKitchenContents(first: Record<string, unknown>, second: Reco
         const identity = (item: unknown) => {
           if (!item || typeof item !== 'object') return JSON.stringify(item)
           const record = item as Record<string, unknown>
-          return String(record.id ?? `${record.name ?? ''}:${record.unit ?? ''}:${record.cookedAt ?? ''}`)
+          return String(record.id ?? record.barcode ?? `${record.name ?? ''}:${record.unit ?? ''}:${record.cookedAt ?? ''}`)
         }
         return identity(a).localeCompare(identity(b))
       })

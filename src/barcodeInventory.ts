@@ -44,3 +44,35 @@ export function rememberedInventoryProduct(inventory: InventoryItem[], barcode: 
   const normalized = normalizeBarcode(barcode)
   return inventory.find((item) => normalizeBarcode(item.barcode || '') === normalized) || null
 }
+
+export function householdProductFromInventory(item: InventoryItem): HouseholdProduct | null {
+  const barcode = normalizeBarcode(item.barcode || '')
+  if (!barcode) return null
+  return {
+    barcode,
+    name: item.name,
+    emoji: item.emoji,
+    unit: item.unit,
+    category: item.category,
+    location: item.location,
+    brand: item.brand || null,
+    productImageUrl: item.productImageUrl || null,
+    packageAmount: item.packageAmount || null,
+    packageUnit: item.packageUnit || null,
+    productSource: 'household',
+  }
+}
+
+export function rememberHouseholdProducts(current: HouseholdProduct[], items: InventoryItem[]) {
+  const remembered = new Map(current.map((item) => [normalizeBarcode(item.barcode), item]))
+  items.forEach((item) => {
+    const product = householdProductFromInventory(item)
+    if (product) remembered.set(product.barcode, product)
+  })
+  return [...remembered.values()]
+}
+
+export function rememberedHouseholdProduct(products: HouseholdProduct[], barcode: string) {
+  const normalized = normalizeBarcode(barcode)
+  return products.find((item) => normalizeBarcode(item.barcode) === normalized) || null
+}

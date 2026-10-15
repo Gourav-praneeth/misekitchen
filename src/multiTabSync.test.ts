@@ -46,4 +46,10 @@ describe('multi-tab sync lease', () => {
     expect(sameKitchenContents(first, reordered)).toBe(true)
     expect(sameKitchenContents(first, { inventory: [{ id: 'eggs', quantity: 5 }, { id: 'milk', quantity: 1 }] })).toBe(false)
   })
+
+  it('orders remembered products by barcode across tabs', () => {
+    const first = { productMemory: [{ barcode: '034000470693', name: 'Milk' }, { barcode: '3017624010701', name: 'Nutella' }] }
+    const second = { productMemory: [...first.productMemory].reverse() }
+    expect(sameKitchenContents(first, second)).toBe(true)
+  })
 })

@@ -7,7 +7,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
 import { addBarcodeBatchItem, barcodeBatchLabel, removeBarcodeBatchItem } from './barcodeBatch'
-import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedInventoryProduct } from './barcodeInventory'
+import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedHouseholdProduct, rememberedInventoryProduct, rememberHouseholdProducts } from './barcodeInventory'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
@@ -33,14 +33,14 @@ import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntr
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
+import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
 type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
@@ -118,6 +118,9 @@ function App() {
   const [hiddenMiseRecipeIds, setHiddenMiseRecipeIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-hidden-recipes-v1') || '') || [] } catch { return [] }
   })
+  const [productMemory, setProductMemory] = useState<HouseholdProduct[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-product-memory-v1') || '') || [] } catch { return [] }
+  })
   const [addOpen, setAddOpen] = useState(false)
   const [smartOpen, setSmartOpen] = useState(false)
   const [barcodeOpen, setBarcodeOpen] = useState(false)
@@ -163,6 +166,7 @@ function App() {
       else {
         setHouseholdId(null)
         setCloudReady(false)
+        setProductMemory([])
       }
       if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryOpen(true)
       setAuthReady(true)
@@ -206,6 +210,7 @@ function App() {
             setMealPlan(localKitchen.mealPlan || [])
             setMealPlanTemplates(localKitchen.mealPlanTemplates || [])
             setCookingHistory(localKitchen.cookingHistory || [])
+            setProductMemory(localKitchen.productMemory || [])
             setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
             setCloudReady(true)
           }
@@ -233,6 +238,7 @@ function App() {
           setMealPlan(pending.mealPlan || [])
           setMealPlanTemplates(mergedTemplates)
           setCookingHistory(pending.cookingHistory || cloud.cookingHistory)
+          setProductMemory(pending.productMemory || cloud.productMemory)
           mealPlanTemplatesDirty.current = pendingTemplates.length > 0
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
@@ -242,6 +248,7 @@ function App() {
           setMealPlan(starterMealPlan.current)
           setMealPlanTemplates(starterMealPlanTemplates.current)
           setCookingHistory([])
+          setProductMemory(cloud.productMemory)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
@@ -257,9 +264,10 @@ function App() {
           setMealPlan(cloud.mealPlan)
           setMealPlanTemplates(cloud.mealPlanTemplates)
           setCookingHistory(cloud.cookingHistory)
+          setProductMemory(cloud.productMemory)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
         }
         // Enable outbound sync on the next task so every hydrated collection has
         // rendered before the snapshot effect can run. Without this boundary, a
@@ -313,6 +321,9 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-hidden-recipes-v1', JSON.stringify(hiddenMiseRecipeIds))
   }, [hiddenMiseRecipeIds, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-product-memory-v1', JSON.stringify(productMemory))
+  }, [productMemory, session, demoMode])
 
   useEffect(() => {
     if (!session || demoMode) return
@@ -352,6 +363,7 @@ function App() {
       setMealPlanTemplates(snapshot.mealPlanTemplates || [])
       mealPlanTemplatesDirty.current = false
       setCookingHistory(snapshot.cookingHistory || [])
+      setProductMemory(snapshot.productMemory || [])
       setHiddenMiseRecipeIds(snapshot.hiddenMiseRecipeIds || [])
       writeStoredKitchen('cache', session.user.id, snapshot)
       localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
@@ -378,7 +390,7 @@ function App() {
     if (syncConflict.current) { setSyncState('conflict'); return }
     const reservation = saveQueue.current.reserve()
     const templatesForCloud = mealPlanTemplatesDirty.current ? mealPlanTemplates : undefined
-    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     localChangesPending.current = true
     writeStoredKitchen('pending', session.user.id, snapshot)
     setSyncState(isOnline ? 'syncing' : 'offline')
@@ -414,7 +426,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -747,7 +759,7 @@ function App() {
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} merged with your existing ingredient` : `${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
-      {barcodeOpen && <BarcodeScanner inventory={inventory} householdId={householdId} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(items) => { const before = inventory; const result = mergeInventoryItems(inventory, items); setInventory(result.items); setBarcodeOpen(false); setToast({ message: `${barcodeBatchLabel(items.length)} saved to your kitchen`, undo: () => { setInventory(before); setToast({ message: 'Barcode scan undone' }) } }) }} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} onClose={() => setBarcodeOpen(false)} onAdd={(items) => { const before = inventory; const beforeMemory = productMemory; const result = mergeInventoryItems(inventory, items); setProductMemory((current) => rememberHouseholdProducts(current, items)); setInventory(result.items); setBarcodeOpen(false); setToast({ message: `${barcodeBatchLabel(items.length)} saved to your kitchen`, undo: () => { setInventory(before); setProductMemory(beforeMemory); setToast({ message: 'Barcode scan undone' }) } }) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
@@ -1520,7 +1532,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   </section></div>
 }
 
-function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; householdId: string | null; accessToken: string; onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
+function BarcodeScanner({ inventory, rememberedProducts, householdId, accessToken, isOnline, onClose, onAdd }: { inventory: InventoryItem[]; rememberedProducts: HouseholdProduct[]; householdId: string | null; accessToken: string; isOnline: boolean; onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
   const [phase, setPhase] = useState<'start' | 'camera' | 'lookup' | 'review'>('start')
   const [barcode, setBarcode] = useState('')
   const [message, setMessage] = useState('')
@@ -1549,9 +1561,17 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
     stopCamera()
     setMessage('Checking your kitchen…')
     setPhase('lookup')
+    const manualReview = (copy: string) => {
+      const manual: BarcodeProduct = { barcode: code, name: 'Packaged product', productSource: 'household' }
+      setProduct(manual)
+      setDraft(inventoryItemFromBarcodeProduct(manual, `barcode-${code}-${Date.now()}`))
+      setMessage(copy)
+      setPhase('review')
+    }
     try {
       const current = rememberedInventoryProduct(inventory, code)
-      const remembered = current || (householdId ? await loadRememberedProduct(householdId, code) : null)
+      const cached = rememberedHouseholdProduct(rememberedProducts, code)
+      const remembered = current || cached || (isOnline && householdId ? await loadRememberedProduct(householdId, code) : null)
       if (remembered) {
         const recalled = inventoryItemFromHouseholdProduct({ ...remembered, barcode: code }, `barcode-${code}-${Date.now()}`)
         setProduct({
@@ -1563,6 +1583,10 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
         setPhase('review')
         return
       }
+      if (!isOnline) {
+        manualReview('You are offline and this barcode is new to your kitchen. Enter the package details now; Mise will remember them when you reconnect.')
+        return
+      }
       setMessage('Looking up this product…')
       const found = await lookupBarcodeProduct(code, accessToken)
       setProduct(found)
@@ -1571,15 +1595,10 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
       setPhase('review')
     } catch (error) {
       if (error instanceof ProductNotFoundError) {
-        const manual: BarcodeProduct = { barcode: code, name: 'Packaged product', productSource: 'household' }
-        setProduct(manual)
-        setDraft(inventoryItemFromBarcodeProduct(manual, `barcode-${code}-${Date.now()}`))
-        setMessage('This barcode is not in Open Food Facts yet. Add the product details once and Mise will keep the barcode with it.')
-        setPhase('review')
+        manualReview('This barcode is not in Open Food Facts yet. Add the product details once and Mise will keep the barcode with it.')
         return
       }
-      setMessage(errorMessage(error, 'Product lookup failed. Enter the code again or add the ingredient manually.'))
-      setPhase('start')
+      manualReview(`${errorMessage(error, 'Product lookup is unavailable.')} Enter the package details manually; you can still add it to this scan list.`)
     }
   }
 
@@ -1604,7 +1623,11 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
       stopCamera()
       setPhase('start')
       const denied = error instanceof DOMException && ['NotAllowedError', 'PermissionDeniedError'].includes(error.name)
-      setMessage(denied ? 'Camera access was denied. Allow camera access in Safari settings or enter the barcode below.' : 'The camera could not start. You can enter the barcode below instead.')
+      const missing = error instanceof DOMException && ['NotFoundError', 'DevicesNotFoundError'].includes(error.name)
+      setMessage(denied
+        ? 'Camera permission is off. On iPhone, open Settings › Safari › Camera, choose Allow, then try again. You can also enter the barcode below.'
+        : missing ? 'No camera was found on this device. Enter the barcode numbers below.'
+          : 'The camera could not start. Check that no other app is using it, then try again or enter the barcode below.')
     }
   }
 

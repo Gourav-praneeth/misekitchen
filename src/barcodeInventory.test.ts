@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedInventoryProduct } from './barcodeInventory'
+import { householdProductFromInventory, inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedHouseholdProduct, rememberedInventoryProduct, rememberHouseholdProducts } from './barcodeInventory'
 
 describe('barcode inventory review', () => {
   it('maps a branded package to the generic food intelligence profile', () => {
@@ -46,5 +46,14 @@ describe('barcode inventory review', () => {
     }, 'saved-product')
     expect(rememberedInventoryProduct([remembered], '0 34000-47069 3')?.id).toBe('saved-product')
     expect(rememberedInventoryProduct([remembered], '4006381333931')).toBeNull()
+  })
+
+  it('keeps corrected products in an offline household cache', () => {
+    const item = inventoryItemFromBarcodeProduct({
+      barcode: '034000470693', name: 'Milk', brand: 'Local Dairy', packageAmount: 946, packageUnit: 'ml', productSource: 'household',
+    }, 'saved-product')
+    const cached = rememberHouseholdProducts([], [item])
+    expect(householdProductFromInventory(item)).toMatchObject({ barcode: '034000470693', name: 'Milk', packageAmount: 946 })
+    expect(rememberedHouseholdProduct(cached, '0 34000-47069 3')).toMatchObject({ brand: 'Local Dairy', unit: 'ml' })
   })
 })
