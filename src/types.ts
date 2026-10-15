@@ -1,7 +1,18 @@
 export type Category = 'Protein' | 'Produce' | 'Dairy' | 'Pantry' | 'Other'
 export type Location = 'Fridge' | 'Freezer' | 'Pantry'
 
-export type InventoryItem = {
+export type ProductSource = 'open-food-facts' | 'household'
+
+export type ProductMetadata = {
+  barcode?: string | null
+  brand?: string | null
+  productImageUrl?: string | null
+  packageAmount?: number | null
+  packageUnit?: string | null
+  productSource?: ProductSource | null
+}
+
+export type InventoryItem = ProductMetadata & {
   id: string
   name: string
   emoji: string

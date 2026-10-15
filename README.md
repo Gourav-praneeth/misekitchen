@@ -90,6 +90,8 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 - Cooking flow that deducts ingredients from inventory
 - Household cooking history with recipe snapshots, servings, cook time, cook attribution, recent activity totals, and one-tap “Cook again”
 - Automatic conversion between compatible volume, weight, and count units for recipe matching, grocery planning, and cooking deductions
+- Barcode-ready product identity with validated GTIN/UPC values, brand and image metadata, and universal package-size normalization
+- Authenticated Open Food Facts product lookup with friendly unknown-product handling and short-lived server caching
 - Missing-ingredient flow that builds a grocery list
 - Purchased-items flow back into the kitchen
 - Responsive desktop and mobile layouts

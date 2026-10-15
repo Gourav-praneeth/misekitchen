@@ -159,6 +159,9 @@ export async function loadCloudKitchen(householdId: string) {
       id: row.id, name: row.name, emoji: row.emoji, quantity: Number(row.quantity), unit: row.unit,
       category: row.category, location: row.location, expiresIn: row.expires_in,
       expiresOn: row.expires_on || expirationDateFromDays(row.expires_in),
+      barcode: row.barcode || null, brand: row.brand || null, productImageUrl: row.product_image_url || null,
+      packageAmount: row.package_amount === null ? null : Number(row.package_amount), packageUnit: row.package_unit || null,
+      productSource: row.product_source || null,
     })) as InventoryItem[],
     grocery: (groceryResult.data || []).map((row) => ({
       name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
@@ -274,11 +277,22 @@ export async function markHouseholdInitialized(householdId: string) {
 export async function saveInventorySnapshot(householdId: string, items: InventoryItem[]) {
   if (!supabase) return
   if (items.length) {
-    const { error } = await supabase.from('inventory_items').upsert(items.map((item) => ({
+    const baseRows = items.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
       quantity: item.quantity, unit: item.unit, category: item.category, location: item.location,
       expires_in: legacyExpirationDaysForStorage(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
-    })), { onConflict: 'household_id,id' })
+    }))
+    const productRows = items.map((item, index) => ({
+      ...baseRows[index],
+      barcode: item.barcode || null, brand: item.brand || null, product_image_url: item.productImageUrl || null,
+      package_amount: item.packageAmount || null, package_unit: item.packageUnit || null, product_source: item.productSource || null,
+    }))
+    let { error } = await supabase.from('inventory_items').upsert(productRows, { onConflict: 'household_id,id' })
+    // Keep production saves working while the optional product-identity migration is being applied.
+    if (error && ['42703', 'PGRST204'].includes(error.code || '')) {
+      const fallback = await supabase.from('inventory_items').upsert(baseRows, { onConflict: 'household_id,id' })
+      error = fallback.error
+    }
     if (error) throw error
     const quotedIds = items.map((item) => `"${item.id.replaceAll('"', '\\"')}"`).join(',')
     const { error: deleteError } = await supabase.from('inventory_items').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)

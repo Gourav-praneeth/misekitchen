@@ -3,6 +3,7 @@ import { getFoodIntelligence } from './foodCatalog'
 import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { Category, GroceryItem, InventoryItem } from './types'
 import { convertAmount } from './measurements'
+import { mergeProductMetadata } from './productIdentity'
 
 const genericUnits = new Set(['item', 'items'])
 
@@ -11,8 +12,8 @@ function inferredUnit(name: string, unit: string) {
   return getFoodIntelligence(name)?.profile.defaultUnit || unit
 }
 
-function comparable(item: Pick<InventoryItem, 'name' | 'unit'>) {
-  return { name: item.name, unit: inferredUnit(item.name, item.unit) }
+function comparable(item: Pick<InventoryItem, 'name' | 'unit' | 'barcode'>) {
+  return { name: item.name, unit: inferredUnit(item.name, item.unit), barcode: item.barcode }
 }
 
 function earlierExpiration(current: InventoryItem, incoming: InventoryItem) {
@@ -40,6 +41,7 @@ export function mergeInventoryItems(current: InventoryItem[], incoming: Inventor
     const withSoonerDate = earlierExpiration(existing, prepared)
     items[existingIndex] = {
       ...withSoonerDate,
+      ...mergeProductMetadata(existing, prepared),
       quantity: Number((existing.quantity + (convertAmount(prepared.quantity, prepared.unit, existing.unit) || 0)).toFixed(3)),
     }
     merged += 1

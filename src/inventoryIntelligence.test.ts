@@ -25,6 +25,14 @@ describe('duplicate-safe inventory intelligence', () => {
     expect(mergeInventoryItems([rice], [bag])).toMatchObject({ merged: 0, added: 1 })
   })
 
+  it('recognizes the same barcode and preserves product metadata when merging', () => {
+    const current = { ...carrots, id: 'first', name: 'Carrot snack', quantity: 250, unit: 'g', barcode: '4006381333931' }
+    const incoming = { ...carrots, id: 'second', name: 'Store carrots', quantity: 250, unit: 'g', barcode: '4006381333931', brand: 'Garden Co' }
+    const result = mergeInventoryItems([current], [incoming])
+    expect(result).toMatchObject({ merged: 1, added: 0 })
+    expect(result.items[0]).toMatchObject({ quantity: 500, barcode: '4006381333931', brand: 'Garden Co' })
+  })
+
   it('parses a natural grocery entry and supplies its food icon', () => {
     const item = groceryItemFromText('2 bags baby spinach')
     expect(item).toMatchObject({ name: 'Baby Spinach', amount: 2, unit: 'bags' })
