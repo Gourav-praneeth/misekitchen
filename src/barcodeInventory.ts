@@ -14,7 +14,7 @@ export function inventoryItemFromBarcodeProduct(product: BarcodeProduct, id: str
   const expiresOn = profile ? suggestedExpirationDate(profile, profile.location, 'purchased') : null
   return applyProductPackage({
     id,
-    name: profile?.name || titleCase(product.genericName || product.name || 'Packaged product'),
+    name: profile?.name || titleCase(product.name || product.genericName || 'Packaged product'),
     emoji: profile?.emoji || '🥫',
     quantity: 1,
     unit: 'pack',

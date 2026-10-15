@@ -20,6 +20,14 @@ describe('barcode inventory review', () => {
     expect(item).toMatchObject({ name: 'Mystery Snack', quantity: 100, unit: 'g', category: 'Other', location: 'Pantry', productSource: 'household' })
   })
 
+  it('prefers the recognizable package name over an unmatched generic description', () => {
+    const item = inventoryItemFromBarcodeProduct({
+      barcode: '5449000000996', name: 'Coca-Cola Original', genericName: 'Bebida refrescante aromatizada',
+      packageAmount: 330, packageUnit: 'ml', productSource: 'open-food-facts',
+    }, 'scan-coke')
+    expect(item.name).toBe('Coca-Cola Original')
+  })
+
   it('restores household corrections with a fresh quantity and expiration', () => {
     const item = inventoryItemFromHouseholdProduct({
       barcode: '034000470693', name: 'Milk', emoji: '🥛', unit: 'ml', category: 'Dairy', location: 'Fridge',
