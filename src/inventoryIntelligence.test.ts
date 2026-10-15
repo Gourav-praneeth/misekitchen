@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groceryCategory, groceryEmoji, groceryItemFromText, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
+import { groceryCategory, groceryEmoji, groceryItemFromText, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems, purchasedGroceryAmount } from './inventoryIntelligence'
 import { recipes } from './data'
 import { matchRecipes } from './recipeIntelligence'
 import type { InventoryItem } from './types'
@@ -65,6 +65,12 @@ describe('duplicate-safe inventory intelligence', () => {
     expect(inventoryItemFromGrocery({ name: 'broccoli', amount: 2, unit: 'item', checked: true }, 'b1')).toMatchObject({
       name: 'Broccoli', emoji: '🥦', quantity: 2, unit: 'head', category: 'Produce', location: 'Fridge', expiresIn: 6,
     })
+  })
+
+  it('transfers the actual package purchase instead of the recipe requirement', () => {
+    const almonds = { name: 'Almonds', amount: 6, unit: 'almonds', checked: true, purchase: { packageCount: 2, packageSize: 500, packageUnit: 'g', location: 'Fridge' as const, expiresOn: '2026-11-01' } }
+    expect(purchasedGroceryAmount(almonds)).toEqual({ amount: 1000, unit: 'g' })
+    expect(inventoryItemFromGrocery(almonds, 'almonds-1')).toMatchObject({ quantity: 1000, unit: 'g', location: 'Fridge', expiresOn: '2026-11-01' })
   })
 
   it('gives every default recipe ingredient a specific grocery icon', () => {

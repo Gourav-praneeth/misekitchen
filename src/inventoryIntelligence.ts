@@ -84,6 +84,7 @@ export function mergeGroceryItems(current: GroceryItem[], incoming: GroceryItem[
     if (existing) {
       existing.amount = Math.max(existing.amount, convertAmount(prepared.amount, prepared.unit, existing.unit) || 0)
       existing.checked = existing.checked && prepared.checked
+      if (!existing.checked) existing.purchase = undefined
     } else {
       items.push(prepared)
     }
@@ -91,19 +92,32 @@ export function mergeGroceryItems(current: GroceryItem[], incoming: GroceryItem[
   return items
 }
 
+export function purchasedGroceryAmount(item: GroceryItem) {
+  const purchase = item.purchase
+  if (!purchase || purchase.packageCount <= 0 || purchase.packageSize <= 0 || !purchase.packageUnit.trim()) {
+    return { amount: item.amount, unit: item.unit }
+  }
+  return {
+    amount: Number((purchase.packageCount * purchase.packageSize).toFixed(3)),
+    unit: purchase.packageUnit,
+  }
+}
+
 export function inventoryItemFromGrocery(item: GroceryItem, id: string): InventoryItem {
   const intelligence = getFoodIntelligence(item.name)
   const profile = intelligence?.profile
   const expiresIn = profile?.shelfLifeDays ?? null
+  const purchased = purchasedGroceryAmount(item)
+  const expiresOn = item.purchase?.expiresOn || expirationDateFromDays(expiresIn)
   return withExpirationDate({
     id,
     name: profile?.name || item.name.trim(),
     emoji: profile?.emoji || '🥫',
-    quantity: item.amount,
-    unit: inferredUnit(item.name, item.unit),
+    quantity: purchased.amount,
+    unit: inferredUnit(item.name, purchased.unit),
     category: profile?.category || 'Other',
-    location: profile?.location || 'Pantry',
+    location: item.purchase?.location || profile?.location || 'Pantry',
     expiresIn,
-    expiresOn: expirationDateFromDays(expiresIn),
+    expiresOn,
   })
 }

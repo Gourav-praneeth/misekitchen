@@ -15,7 +15,7 @@ import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirat
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
 import { addOrUpdateStaple, groceryFromStaples, moveStaple, moveStapleGroup, orderedStapleGroups, orderedStaples } from './groceryStaples'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
-import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems } from './inventoryIntelligence'
+import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems, purchasedGroceryAmount } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
 import { defaultMealReminderPreferences, mealReminderLabel, mealRemindersForToday, normalizeMealReminderPreferences, type MealReminder, type MealReminderPreferences } from './mealReminders'
@@ -41,6 +41,7 @@ type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
+type GroceryPurchaseDraft = GroceryItem & { purchase: NonNullable<GroceryItem['purchase']> }
 type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
 
@@ -1164,23 +1165,34 @@ function Grocery({ grocery, stapleGroups, staples, inventory, setGrocery, setSta
   const [editing, setEditing] = useState<{ index: number; item: GroceryItem } | null>(null)
   const [adding, setAdding] = useState(false)
   const [staplesOpen, setStaplesOpen] = useState(false)
+  const [storeMode, setStoreMode] = useState(false)
+  const [aisleEditorOpen, setAisleEditorOpen] = useState(false)
+  const [purchaseReviewOpen, setPurchaseReviewOpen] = useState(false)
+  const [aisleOrder, setAisleOrder] = useState<Category[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('mise-aisle-order-v1') || '[]') as Category[]
+      const valid = stored.filter((category) => categories.includes(category))
+      return valid.length ? [...valid, ...categories.filter((category) => !valid.includes(category))] : ['Produce', 'Protein', 'Dairy', 'Pantry', 'Other']
+    } catch { return ['Produce', 'Protein', 'Dairy', 'Pantry', 'Other'] }
+  })
+  useEffect(() => { localStorage.setItem('mise-aisle-order-v1', JSON.stringify(aisleOrder)) }, [aisleOrder])
   const checkedCount = grocery.filter((item) => item.checked).length
   const neededCount = grocery.length - checkedCount
-  const visible = grocery.map((item, index) => ({ item, index })).filter(({ item }) => filter === 'all' || (filter === 'checked' ? item.checked : !item.checked))
-  const sections = categories.map((category) => ({ category, entries: visible.filter(({ item }) => groceryCategory(item) === category) })).filter((section) => section.entries.length)
+  const visible = grocery.map((item, index) => ({ item, index })).filter(({ item }) => storeMode ? !item.checked : filter === 'all' || (filter === 'checked' ? item.checked : !item.checked))
+  const sections = aisleOrder.map((category) => ({ category, entries: visible.filter(({ item }) => groceryCategory(item) === category) })).filter((section) => section.entries.length)
   function addManual() {
     const items = groceryItemsFromText(draft)
     if (!items.length) return
     setGrocery((current) => mergeGroceryItems(current, items)); setDraft('')
     notify(`${items.length} grocery item${items.length === 1 ? '' : 's'} added`)
   }
-  function moveCheckedToKitchen() {
-    const bought = grocery.filter((item) => item.checked)
+  function moveCheckedToKitchen(bought: GroceryItem[]) {
     if (!bought.length) return
     const incoming = bought.map((item, index) => inventoryItemFromGrocery(item, `${normalize(item.name).replace(/\s/g, '-')}-${Date.now()}-${index}`))
     const result = mergeInventoryItems(inventory, incoming)
     setInventory(result.items)
     setGrocery((items) => items.filter((item) => !item.checked))
+    setPurchaseReviewOpen(false)
     const summary = [result.added ? `${result.added} added` : '', result.merged ? `${result.merged} merged` : ''].filter(Boolean).join(', ')
     notify(`${summary} in your kitchen`)
   }
@@ -1204,21 +1216,52 @@ function Grocery({ grocery, stapleGroups, staples, inventory, setGrocery, setSta
     setStaples((current) => addOrUpdateStaple(current, candidate))
     notify(`${item.name} saved to ${group.name}`)
   }
-  return <section className="inner-page">
-    <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.0</h1><p>Organized by aisle, synced with your recipes, and ready to move purchases into your kitchen.</p></div><div className="title-actions">{neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={moveCheckedToKitchen}><PackageOpen size={18} /> Add {checkedCount} to kitchen</button>}</div></div>
+  return <section className={`inner-page grocery-page${storeMode ? ' store-mode' : ''}`}>
+    <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.1</h1><p>{storeMode ? 'A focused shopping view with only what is left to collect.' : 'Organized by aisle, ready for real package quantities, and accurate when purchases move into your kitchen.'}</p></div><div className="title-actions"><button className={storeMode ? 'primary-button' : 'secondary-button'} onClick={() => { setStoreMode((current) => !current); setFilter('needed') }}><ShoppingBasket /> {storeMode ? 'Exit store mode' : 'Store mode'}</button>{!storeMode && <button className="secondary-button" onClick={() => setAisleEditorOpen(true)}><ArrowUp /> Aisle order</button>}{!storeMode && neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={() => setPurchaseReviewOpen(true)}><PackageOpen size={18} /> Review {checkedCount} purchase{checkedCount === 1 ? '' : 's'}</button>}</div></div>
     <div className="grocery-progress panel"><div><span><strong>{checkedCount}</strong> of {grocery.length} collected</span><small>{neededCount ? `${neededCount} item${neededCount === 1 ? '' : 's'} left to find` : grocery.length ? 'Shopping complete — ready for your kitchen' : 'Add items or build a list from a recipe'}</small></div><div role="progressbar" aria-label="Shopping progress" aria-valuemin={0} aria-valuemax={grocery.length} aria-valuenow={checkedCount}><span style={{ width: `${grocery.length ? (checkedCount / grocery.length) * 100 : 0}%` }} /></div></div>
     <div className="grocery-layout"><div className="grocery-list panel">
+      {!storeMode && <>
       <div className="grocery-add-head"><div><strong>Add grocery items</strong><small>Add one item with details, or paste several below.</small></div><button onClick={() => setAdding(true)}><CirclePlus /> Add one item</button></div>
       <div className="grocery-add"><label>Add several at once<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'2 bags spinach\n1 gallon milk\n6 apples'} /></label><button onClick={addManual} disabled={!draft.trim()}><Plus /> Add items</button></div>
-      {grocery.length > 0 && <div className="grocery-toolbar"><div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div><small>Items are grouped by aisle automatically</small></div>}
-      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div></div>)}</section>)}</div>
+      </>}
+      {grocery.length > 0 && <div className="grocery-toolbar">{storeMode ? <strong className="store-mode-label"><ShoppingBasket /> {neededCount} item{neededCount === 1 ? '' : 's'} left to collect</strong> : <div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div>}<small>{storeMode ? 'Tap an item as it goes into your cart' : 'Items are grouped by aisle automatically'}</small></div>}
+      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => { const bought = purchasedGroceryAmount(item); return <div className={item.checked ? 'grocery-row checked' : 'grocery-row'} key={`${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked, ...(!entry.checked ? {} : { purchase: undefined }) } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{item.checked && item.purchase ? `Bought ${formatAmount(bought.amount)} ${bought.unit} · needed ${formatAmount(item.amount)} ${item.unit}` : `${formatAmount(item.amount)} ${item.unit}`}</small></p>{!storeMode && <div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div>}</div> })}</section>)}</div>
       {!grocery.length && <Empty title="Your list is clear" copy="Add several items above or choose an almost-ready recipe." />}
       {grocery.length > 0 && !visible.length && <Empty title={filter === 'checked' ? 'Nothing collected yet' : 'Everything is collected'} copy={filter === 'checked' ? 'Tap an item while shopping to move it here.' : 'Switch to Collected to review your cart.'} />}
-    </div><StaplesPanel groups={stapleGroups} staples={staples} onAdd={(items) => { setGrocery((current) => mergeGroceryItems(current, groceryFromStaples(items))); notify(`${items.length} staple${items.length === 1 ? '' : 's'} added to your grocery list`) }} onManage={() => setStaplesOpen(true)} /></div>
+    </div>{!storeMode && <StaplesPanel groups={stapleGroups} staples={staples} onAdd={(items) => { setGrocery((current) => mergeGroceryItems(current, groceryFromStaples(items))); notify(`${items.length} staple${items.length === 1 ? '' : 's'} added to your grocery list`) }} onManage={() => setStaplesOpen(true)} />}</div>
     {editing && <GroceryItemEditor item={editing.item} onClose={() => setEditing(null)} onSave={saveEditedItem} />}
     {adding && <GroceryItemEditor item={{ name: '', amount: 1, unit: 'item', checked: false }} mode="add" onClose={() => setAdding(false)} onSave={saveNewItem} />}
+    {aisleEditorOpen && <AisleOrderEditor order={aisleOrder} onChange={setAisleOrder} onClose={() => setAisleEditorOpen(false)} />}
+    {purchaseReviewOpen && <PurchaseReview items={grocery.filter((item) => item.checked)} onClose={() => setPurchaseReviewOpen(false)} onConfirm={moveCheckedToKitchen} />}
     {staplesOpen && <StaplesManager groups={stapleGroups} staples={staples} setGroups={setStapleGroups} setStaples={setStaples} onAddToGrocery={(items) => setGrocery((current) => mergeGroceryItems(current, groceryFromStaples(items)))} onClose={() => setStaplesOpen(false)} notify={notify} />}
   </section>
+}
+
+function AisleOrderEditor({ order, onChange, onClose }: { order: Category[]; onChange: (order: Category[]) => void; onClose: () => void }) {
+  function move(category: Category, offset: number) {
+    const index = order.indexOf(category)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= order.length) return
+    const next = [...order]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal aisle-order-editor" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Match your store</span><h2>Aisle order</h2><p>Arrange categories in the order you usually walk through the store.</p></div><button onClick={onClose} aria-label="Close aisle order"><X /></button></div><ol>{order.map((category, index) => <li key={category}><span>{index + 1}</span><strong>{category}</strong><div><button disabled={index === 0} onClick={() => move(category, -1)} aria-label={`Move ${category} up`}><ArrowUp /></button><button disabled={index === order.length - 1} onClick={() => move(category, 1)} aria-label={`Move ${category} down`}><ArrowDown /></button></div></li>)}</ol><button className="submit-button" onClick={onClose}>Save aisle order <Check /></button></section></div>
+}
+
+function PurchaseReview({ items, onClose, onConfirm }: { items: GroceryItem[]; onClose: () => void; onConfirm: (items: GroceryItem[]) => void }) {
+  const [drafts, setDrafts] = useState<GroceryPurchaseDraft[]>(() => items.map((item) => {
+    const profile = getFoodIntelligence(item.name)?.profile
+    return {
+      ...item,
+      purchase: item.purchase || { packageCount: 1, packageSize: item.amount, packageUnit: item.unit, location: profile?.location || 'Pantry', expiresOn: expirationDateFromDays(profile?.shelfLifeDays ?? null) },
+    }
+  }))
+  function update(index: number, purchase: Partial<GroceryPurchaseDraft['purchase']>) {
+    setDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, purchase: { ...item.purchase, ...purchase } } : item))
+  }
+  const valid = drafts.length > 0 && drafts.every((item) => item.purchase.packageCount > 0 && item.purchase.packageSize > 0 && item.purchase.packageUnit.trim())
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal purchase-review" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Purchased quantities</span><h2>What did you actually buy?</h2><p>Recipe amounts are estimates. Confirm the package, storage, and use-by details so your kitchen receives the real quantity.</p></div><button onClick={onClose} aria-label="Close purchase review"><X /></button></div><div className="purchase-review-list">{drafts.map((item, index) => { const total = purchasedGroceryAmount(item); return <article key={`${item.name}-${item.unit}-${index}`}><div className="purchase-item-heading"><span>{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>Needed {formatAmount(item.amount)} {item.unit}</small></p></div><div className="purchase-fields"><label>Packages<NumberField min="1" step="1" value={item.purchase.packageCount} onValueChange={(packageCount) => update(index, { packageCount })} /></label><label>Size each<NumberField min="0.01" step="0.01" value={item.purchase.packageSize} onValueChange={(packageSize) => update(index, { packageSize })} /></label><label>Unit<UnitPicker value={item.purchase.packageUnit} onChange={(packageUnit) => update(index, { packageUnit })} ariaLabel={`Purchased unit for ${item.name}`} required /></label><label>Store in<select value={item.purchase.location || 'Pantry'} onChange={(event) => update(index, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use-by date<input type="date" value={item.purchase.expiresOn || ''} onChange={(event) => update(index, { expiresOn: event.target.value || null })} /></label></div><div className="purchase-total"><span>Total going into your kitchen</span><strong>{formatAmount(total.amount)} {total.unit}</strong></div></article> })}</div><button className="submit-button" disabled={!valid} onClick={() => onConfirm(drafts)}><PackageOpen /> Add confirmed purchases to kitchen</button></section></div>
 }
 
 function StaplesPanel({ groups, staples, onAdd, onManage }: { groups: GroceryStapleGroup[]; staples: GroceryStaple[]; onAdd: (items: GroceryStaple[]) => void; onManage: () => void }) {
@@ -1317,7 +1360,7 @@ function GroceryItemEditor({ item, mode = 'edit', onClose, onSave }: { item: Gro
     if (!name.trim() || !Number.isFinite(amount) || amount <= 0 || !unit.trim()) return
     onSave({ ...item, name: name.trim(), amount, unit: unit.trim() })
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-editor" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Grocery List 2.0</span><h2>{mode === 'add' ? 'Add grocery item' : 'Edit grocery item'}</h2></div><button type="button" onClick={onClose} aria-label="Close grocery item editor"><X /></button></div><div className="grocery-edit-preview"><span>{groceryEmoji({ name })}</span><p><strong>{name || 'Grocery item'}</strong><small>{groceryCategory({ name })} aisle</small></p></div><label>Item name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Milk" /></label><div className="form-row"><label>Quantity<NumberField min="0.01" step="0.01" value={amount} onValueChange={setAmount} /></label><label>Unit<UnitPicker value={unit} onChange={setUnit} ariaLabel="Grocery item unit" required /></label></div><button className="submit-button" type="submit">{mode === 'add' ? 'Add to grocery list' : 'Save changes'} <ArrowRight /></button></form></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-editor" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Grocery List 2.1</span><h2>{mode === 'add' ? 'Add grocery item' : 'Edit grocery item'}</h2></div><button type="button" onClick={onClose} aria-label="Close grocery item editor"><X /></button></div><div className="grocery-edit-preview"><span>{groceryEmoji({ name })}</span><p><strong>{name || 'Grocery item'}</strong><small>{groceryCategory({ name })} aisle</small></p></div><label>Item name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Milk" /></label><div className="form-row"><label>Quantity<NumberField min="0.01" step="0.01" value={amount} onValueChange={setAmount} /></label><label>Unit<UnitPicker value={unit} onChange={setUnit} ariaLabel="Grocery item unit" required /></label></div><button className="submit-button" type="submit">{mode === 'add' ? 'Add to grocery list' : 'Save changes'} <ArrowRight /></button></form></div>
 }
 
 function SettingsPage({ session, householdId, displayName, preferences, reminderPreferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onUpdateReminderPreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {

@@ -44,7 +44,17 @@ Make Overview and recipe suggestions more useful than a simple ingredient-match 
 
 Exit criteria: a user can understand why a meal was suggested and act on it in one or two taps.
 
-### 3. Meal Planner 2.1 — Queued
+### 3. Grocery List 2.1 — Done
+
+- [x] Keep duplicate merging conservative while source tracking is deferred: compatible duplicates use the larger requirement instead of adding blindly.
+- [x] Let users customize aisle order and provide a compact mobile in-store mode.
+- [x] Separate the needed amount from the actual package quantity purchased.
+- [x] Confirm package count, package size, and unit before transferring purchases into the kitchen.
+- [x] Keep icons, universal-unit conversion, custom units, and purchased-to-kitchen transfer accurate.
+
+Exit criteria: shopping is fast on a phone, actual package quantities reach inventory, and no duplicate is inflated without enough source information.
+
+### 4. Meal Planner 2.1 — On hold
 
 Build on the current weekly planner after recommendation ranking is available.
 
@@ -57,15 +67,6 @@ Build on the current weekly planner after recommendation ranking is available.
 - Preserve template, serving, household sync, and grocery calculation behavior.
 
 Exit criteria: planning a useful week on a phone is faster than building the same plan one slot at a time.
-
-### 4. Grocery List 2.1 — Queued
-
-- Carry recommendation and meal-plan context into grocery items.
-- Show which recipe or planned meal requested an item.
-- Improve duplicate resolution when manual, staple, recipe, and meal-plan additions overlap.
-- Consider adding unit search and recently used choices if beta testing shows the grouped picker is too slow for larger unit lists.
-- Add optional aisle ordering and a compact in-store mode for mobile.
-- Keep icons, package quantities, universal-unit conversion, and purchased-to-kitchen transfer accurate.
 
 ### 5. Smart Entry and receipt refinement — Queued
 
@@ -86,6 +87,7 @@ These ideas should be considered during related feature work but do not override
 - Install guidance for adding Mise to an iPhone or Android home screen.
 - Optional local reminders for expiring ingredients as a separate preference from meal reminders.
 - Search that can find ingredients, recipes, planned meals, and grocery items from one place.
+- Source-aware grocery provenance showing which recipe, recommendation, staple, or meal-plan entry requested each item; required before additive multi-recipe merging can be completely reliable.
 - Household activity filters so users can quickly find inventory, meal-plan, or grocery changes.
 - Export and account-data deletion controls before expanding beyond private beta.
 
@@ -113,6 +115,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 ## Decision log
 
 - **October 14, 2026:** Barcode scanning was pulled ahead of smarter recommendations and Meal Planner 2.1 because reliable product entry is foundational to accurate inventory, recipes, and grocery planning. After barcode beta validation, work returns to smarter recommendations, followed by Meal Planner 2.1.
+- **October 14, 2026:** Grocery List 2.1 moved ahead of Meal Planner 2.1. Source-aware grocery provenance is deferred; package confirmation, aisle order, store mode, and accurate purchased-to-kitchen transfer proceed independently.
 
 ## How to maintain this roadmap
 

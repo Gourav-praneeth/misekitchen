@@ -56,7 +56,18 @@ export type Recipe = {
   imageUrl?: string | null
 }
 
-export type GroceryItem = RecipeIngredient & { checked: boolean }
+export type GroceryPurchase = {
+  packageCount: number
+  packageSize: number
+  packageUnit: string
+  location?: Location
+  expiresOn?: string | null
+}
+
+export type GroceryItem = RecipeIngredient & {
+  checked: boolean
+  purchase?: GroceryPurchase
+}
 
 export type GroceryStapleGroup = {
   id: string
