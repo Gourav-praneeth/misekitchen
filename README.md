@@ -98,6 +98,8 @@ The optional Discover tab calls Spoonacular through a protected Vercel Function.
 
 ## Next production steps
 
-The current version is ready for private beta testing. The next production investments should be catalog expansion based on tester receipts and additional beta-driven refinements. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
+The current version is ready for private beta testing. Finish the active barcode-scanner validation before returning to smarter recommendations, followed by Meal Planner 2.1. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
+
+Implementation priorities, deferred ideas, and UX improvements are tracked in [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md). Update that roadmap whenever a new feature changes the planned order so paused work is not lost.
 
 Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.
