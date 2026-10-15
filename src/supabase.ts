@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
+import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -194,6 +194,33 @@ export async function loadCloudKitchen(householdId: string) {
     hiddenMiseRecipeIds: (householdResult.data.hidden_mise_recipe_ids || []) as string[],
     initialized: Boolean(householdResult.data.initialized),
   }
+}
+
+export async function loadRememberedProduct(householdId: string, barcode: string): Promise<HouseholdProduct | null> {
+  if (!supabase) return null
+  const { data, error } = await supabase
+    .from('household_products')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('barcode', barcode)
+    .maybeSingle()
+  // Let a deployment remain usable until the optional memory migration is applied.
+  if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return null
+  if (error) throw error
+  if (!data) return null
+  return {
+    barcode: data.barcode,
+    name: data.name,
+    emoji: data.emoji,
+    unit: data.unit,
+    category: data.category,
+    location: data.location,
+    brand: data.brand || null,
+    productImageUrl: data.product_image_url || null,
+    packageAmount: data.package_amount === null ? null : Number(data.package_amount),
+    packageUnit: data.package_unit || null,
+    productSource: 'household',
+  } as HouseholdProduct
 }
 
 export async function saveCookingHistoryEntry(householdId: string, entry: CookingHistoryEntry) {

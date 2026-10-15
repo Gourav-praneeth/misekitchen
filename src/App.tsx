@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
-import { inventoryItemFromBarcodeProduct } from './barcodeInventory'
+import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedInventoryProduct } from './barcodeInventory'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
@@ -30,7 +30,7 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadHouseholdActivity, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markHouseholdInitialized, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
 import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 
@@ -746,7 +746,7 @@ function App() {
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} merged with your existing ingredient` : `${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
-      {barcodeOpen && <BarcodeScanner inventory={inventory} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setBarcodeOpen(false); notify(result.merged ? `${item.name} merged with your existing product` : `${item.name} added to your kitchen`) }} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} householdId={householdId} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setBarcodeOpen(false); notify(result.merged ? `${item.name} merged with your existing product` : `${item.name} added to your kitchen`) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
@@ -1519,7 +1519,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   </section></div>
 }
 
-function BarcodeScanner({ inventory, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; accessToken: string; onClose: () => void; onAdd: (item: InventoryItem) => void }) {
+function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; householdId: string | null; accessToken: string; onClose: () => void; onAdd: (item: InventoryItem) => void }) {
   const [phase, setPhase] = useState<'start' | 'camera' | 'lookup' | 'review'>('start')
   const [barcode, setBarcode] = useState('')
   const [message, setMessage] = useState('')
@@ -1545,9 +1545,23 @@ function BarcodeScanner({ inventory, accessToken, onClose, onAdd }: { inventory:
     setBarcode(code)
     if (!isValidBarcode(code)) { setMessage('Scan or enter a valid UPC, EAN, or GTIN barcode.'); setPhase('start'); return }
     stopCamera()
-    setMessage('Looking up this product…')
+    setMessage('Checking your kitchen…')
     setPhase('lookup')
     try {
+      const current = rememberedInventoryProduct(inventory, code)
+      const remembered = current || (householdId ? await loadRememberedProduct(householdId, code) : null)
+      if (remembered) {
+        const recalled = inventoryItemFromHouseholdProduct({ ...remembered, barcode: code }, `barcode-${code}-${Date.now()}`)
+        setProduct({
+          barcode: code, name: recalled.name, brand: recalled.brand, productImageUrl: recalled.productImageUrl,
+          packageAmount: recalled.packageAmount, packageUnit: recalled.packageUnit, productSource: 'household',
+        })
+        setDraft(recalled)
+        setMessage(current ? 'Already in your kitchen. Your saved details are ready to merge.' : 'Recognized from your kitchen. Your saved corrections were applied.')
+        setPhase('review')
+        return
+      }
+      setMessage('Looking up this product…')
       const found = await lookupBarcodeProduct(code, accessToken)
       setProduct(found)
       setDraft(inventoryItemFromBarcodeProduct(found, `barcode-${code}-${Date.now()}`))

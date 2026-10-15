@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inventoryItemFromBarcodeProduct } from './barcodeInventory'
+import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedInventoryProduct } from './barcodeInventory'
 
 describe('barcode inventory review', () => {
   it('maps a branded package to the generic food intelligence profile', () => {
@@ -18,5 +18,25 @@ describe('barcode inventory review', () => {
       barcode: '4006381333931', name: 'Mystery snack', quantityText: '2 x 50 g', productSource: 'household',
     }, 'scan-2')
     expect(item).toMatchObject({ name: 'Mystery Snack', quantity: 100, unit: 'g', category: 'Other', location: 'Pantry', productSource: 'household' })
+  })
+
+  it('restores household corrections with a fresh quantity and expiration', () => {
+    const item = inventoryItemFromHouseholdProduct({
+      barcode: '034000470693', name: 'Milk', emoji: '🥛', unit: 'ml', category: 'Dairy', location: 'Fridge',
+      brand: 'Local Dairy', packageAmount: 946, packageUnit: 'ml', productSource: 'household',
+    }, 'scan-remembered')
+    expect(item).toMatchObject({
+      id: 'scan-remembered', name: 'Milk', quantity: 946, unit: 'ml', category: 'Dairy',
+      location: 'Fridge', barcode: '034000470693', brand: 'Local Dairy', productSource: 'household',
+    })
+    expect(item.expiresOn).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('finds a saved product by its normalized barcode before an external lookup', () => {
+    const remembered = inventoryItemFromBarcodeProduct({
+      barcode: '034000470693', name: 'Milk', packageAmount: 946, packageUnit: 'ml', productSource: 'household',
+    }, 'saved-product')
+    expect(rememberedInventoryProduct([remembered], '0 34000-47069 3')?.id).toBe('saved-product')
+    expect(rememberedInventoryProduct([remembered], '4006381333931')).toBeNull()
   })
 })

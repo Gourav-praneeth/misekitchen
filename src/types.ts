@@ -24,6 +24,15 @@ export type InventoryItem = ProductMetadata & {
   expiresOn?: string | null
 }
 
+export type HouseholdProduct = ProductMetadata & {
+  barcode: string
+  name: string
+  emoji: string
+  unit: string
+  category: Category
+  location: Location
+}
+
 export type RecipeIngredient = {
   name: string
   amount: number
