@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
 import AuthScreen from './AuthScreen'
+import { addBarcodeBatchItem, barcodeBatchLabel, removeBarcodeBatchItem } from './barcodeBatch'
 import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rememberedInventoryProduct } from './barcodeInventory'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
@@ -746,7 +747,7 @@ function App() {
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} merged with your existing ingredient` : `${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
-      {barcodeOpen && <BarcodeScanner inventory={inventory} householdId={householdId} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(item) => { const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setBarcodeOpen(false); notify(result.merged ? `${item.name} merged with your existing product` : `${item.name} added to your kitchen`) }} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} householdId={householdId} accessToken={session?.access_token || ''} onClose={() => setBarcodeOpen(false)} onAdd={(items) => { const before = inventory; const result = mergeInventoryItems(inventory, items); setInventory(result.items); setBarcodeOpen(false); setToast({ message: `${barcodeBatchLabel(items.length)} saved to your kitchen`, undo: () => { setInventory(before); setToast({ message: 'Barcode scan undone' }) } }) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
@@ -1519,12 +1520,13 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   </section></div>
 }
 
-function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; householdId: string | null; accessToken: string; onClose: () => void; onAdd: (item: InventoryItem) => void }) {
+function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }: { inventory: InventoryItem[]; householdId: string | null; accessToken: string; onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
   const [phase, setPhase] = useState<'start' | 'camera' | 'lookup' | 'review'>('start')
   const [barcode, setBarcode] = useState('')
   const [message, setMessage] = useState('')
   const [product, setProduct] = useState<BarcodeProduct | null>(null)
   const [draft, setDraft] = useState<InventoryItem | null>(null)
+  const [queue, setQueue] = useState<InventoryItem[]>([])
   const [packageCount, setPackageCount] = useState(1)
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
@@ -1616,6 +1618,37 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
     if (draft?.packageAmount && draft.packageUnit) updateDraft({ quantity: Number((draft.packageAmount * next).toFixed(3)), unit: draft.packageUnit })
   }
 
+  function resetProduct(nextMessage = '') {
+    setProduct(null)
+    setDraft(null)
+    setBarcode('')
+    setPackageCount(1)
+    setPhase('start')
+    setMessage(nextMessage)
+  }
+
+  function queuedWithDraft() {
+    if (!draft?.name.trim() || draft.quantity <= 0) return queue
+    return addBarcodeBatchItem(queue, { ...draft, expiresIn: daysUntilDate(draft.expiresOn) })
+  }
+
+  function addAndContinue() {
+    const next = queuedWithDraft()
+    setQueue(next)
+    resetProduct(`${barcodeBatchLabel(next.length)} ready to save. Scan the next package.`)
+  }
+
+  function addAndScanNext() {
+    const next = queuedWithDraft()
+    setQueue(next)
+    resetProduct(`${barcodeBatchLabel(next.length)} ready to save.`)
+    window.setTimeout(() => void startCamera(), 0)
+  }
+
+  function saveBatch(items = queue) {
+    if (items.length) onAdd(items)
+  }
+
   async function toggleTorch() {
     if (!scannerControls.current?.switchTorch) return
     const next = !torchOn
@@ -1623,20 +1656,21 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
   }
 
   const duplicate = draft ? inventory.find((item) => sameFoodAndUnit(item, draft)) : null
+  const queuedDuplicate = draft ? rememberedInventoryProduct(queue, draft.barcode || '') : null
   const dateWarning = draft ? expirationWarning(draft.expiresOn, getFoodIntelligence(draft.name)?.profile, draft.location) : null
 
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal barcode-modal" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="modal-head"><div><span className="eyebrow"><Camera size={12} /> Smart Entry</span><h2>Scan a product</h2></div><button type="button" onClick={() => { stopCamera(); onClose() }} aria-label="Close barcode scanner"><X /></button></div>
+      <div className="modal-head"><div><span className="eyebrow"><Camera size={12} /> Smart Entry</span><h2>{queue.length ? `Scan list · ${queue.length}` : 'Scan products'}</h2></div><button type="button" onClick={() => { stopCamera(); onClose() }} aria-label="Close barcode scanner"><X /></button></div>
     {phase !== 'review' && <>
-      <p className="modal-intro">Scan a packaged grocery barcode, or enter its numbers manually. You will review everything before it reaches your kitchen.</p>
+      <p className="modal-intro">Scan packaged groceries one after another. Review each product, then save the whole list to your kitchen together.</p>
       {phase === 'camera' ? <div className="barcode-camera"><video ref={video} autoPlay muted playsInline /><div className="barcode-frame"><span /></div>{torchAvailable && <button type="button" onClick={() => void toggleTorch()}><Flashlight /> {torchOn ? 'Light off' : 'Light on'}</button>}</div>
         : <button type="button" className="start-camera-button" disabled={phase === 'lookup'} onClick={() => void startCamera()}><Camera /> Use rear camera</button>}
       <div className="barcode-status" role="status" aria-live="polite">{phase === 'lookup' && <i />}{message || 'Works with UPC-A, UPC-E, EAN-8, EAN-13, and GTIN labels.'}</div>
       <div className="smart-divider"><span>or enter the numbers</span></div>
       <form className="barcode-manual" onSubmit={(event) => { event.preventDefault(); void identify(barcode) }}><label>Barcode<input inputMode="numeric" autoComplete="off" value={barcode} onChange={(event) => setBarcode(normalizeBarcode(event.target.value).slice(0, 14))} placeholder="e.g. 3017624010701" /></label><button type="submit" disabled={phase === 'lookup' || !barcode}>Find product <ArrowRight /></button></form>
     </>}
-    {phase === 'review' && draft && product && <form className="barcode-review" onSubmit={(event) => { event.preventDefault(); if (draft.name.trim() && draft.quantity > 0) onAdd({ ...draft, expiresIn: daysUntilDate(draft.expiresOn) }) }}>
-      <div className="product-preview">{draft.productImageUrl ? <img src={draft.productImageUrl} alt="" /> : <span>{draft.emoji}</span>}<div><small>{draft.brand || (draft.productSource === 'household' ? 'Household product' : 'Open Food Facts')}</small><strong>{product.name}</strong><em>{barcode}</em></div><button type="button" onClick={() => { setProduct(null); setDraft(null); setPhase('start'); setMessage('') }}>Scan again</button></div>
+    {phase === 'review' && draft && product && <form className="barcode-review" onSubmit={(event) => { event.preventDefault(); saveBatch(queuedWithDraft()) }}>
+      <div className="product-preview">{draft.productImageUrl ? <img src={draft.productImageUrl} alt="" /> : <span>{draft.emoji}</span>}<div><small>{draft.brand || (draft.productSource === 'household' ? 'Household product' : 'Open Food Facts')}</small><strong>{product.name}</strong><em>{barcode}</em></div><button type="button" onClick={() => resetProduct()}>Scan a different code</button></div>
       <div className="barcode-status ready">{message}</div>
       <label>Ingredient name<input autoFocus required value={draft.name} onChange={(event) => { const name = event.target.value; const intelligence = getFoodIntelligence(name); updateDraft({ name, ...(intelligence ? { emoji: intelligence.profile.emoji, category: intelligence.profile.category, location: intelligence.profile.location } : {}) }) }} /></label>
       <div className="form-row"><label>Packages<NumberField min="1" step="1" value={packageCount} onValueChange={updatePackageCount} /></label><label>Total quantity<NumberField min="0.01" step="0.01" value={draft.quantity} onValueChange={(quantity) => updateDraft({ quantity })} /></label></div>
@@ -1645,9 +1679,12 @@ function BarcodeScanner({ inventory, householdId, accessToken, onClose, onAdd }:
       {draft.packageAmount && draft.packageUnit && <p className="package-note">Each package contains {formatAmount(draft.packageAmount)} {draft.packageUnit}. Mise stores the total so recipe measurements can be deducted accurately.</p>}
       {dateWarning && <div className="expiration-warning"><TriangleAlert /> {dateWarning}</div>}
       {duplicate && <div className="duplicate-product"><Copy /><span><strong>Already in your kitchen</strong>This will merge into {duplicate.quantity} {duplicate.unit} of {duplicate.name}.</span></div>}
+      {queuedDuplicate && <div className="duplicate-product"><Copy /><span><strong>Already in your scan list</strong>This package will be combined with {queuedDuplicate.name}.</span></div>}
       <p className="product-data-note"><TriangleAlert /> Product information can be incomplete. Always verify the package label for allergens and use-by dates.</p>
-      <button className="submit-button" disabled={!draft.name.trim() || draft.quantity <= 0}>Add to my kitchen <ArrowRight /></button>
+      <div className="barcode-review-actions"><button type="button" className="secondary-button" disabled={!draft.name.trim() || draft.quantity <= 0} onClick={addAndContinue}><Plus /> Add to scan list</button><button type="button" className="secondary-button" disabled={!draft.name.trim() || draft.quantity <= 0} onClick={addAndScanNext}><Camera /> Add & scan next</button></div>
+      <button className="submit-button" disabled={!draft.name.trim() || draft.quantity <= 0}>Save {barcodeBatchLabel(queuedWithDraft().length)} to my kitchen <ArrowRight /></button>
     </form>}
+    {queue.length > 0 && <section className="barcode-queue" aria-label="Scanned products"><div className="barcode-queue-head"><div><strong>{barcodeBatchLabel(queue.length)} ready</strong><small>Repeated barcodes are combined automatically.</small></div>{phase !== 'review' && <button type="button" onClick={() => saveBatch()}>Save all <ArrowRight /></button>}</div><div>{queue.map((item) => <article key={item.id}><span>{item.productImageUrl ? <img src={item.productImageUrl} alt="" /> : item.emoji}</span><p><strong>{item.name}</strong><small>{formatAmount(item.quantity)} {item.unit}{item.brand ? ` · ${item.brand}` : ''}</small></p><button type="button" onClick={() => setQueue((current) => removeBarcodeBatchItem(current, item.id))} aria-label={`Remove ${item.name} from scan list`}><Trash2 /></button></article>)}</div></section>}
   </section></div>
 }
 

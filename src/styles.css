@@ -442,6 +442,26 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .package-note, .product-data-note { margin: 10px 0 0; color: #738078; font-size: 9px; line-height: 1.5; }
 .product-data-note { display: flex; align-items: flex-start; gap: 6px; color: #886e55; }
 .product-data-note svg { width: 14px; flex: 0 0 auto; }
+.barcode-review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.barcode-review-actions .secondary-button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; margin: 0; }
+.barcode-review-actions svg { width: 14px; }
+.barcode-queue { display: grid; gap: 9px; margin-top: 14px; padding: 12px; border: 1px solid #d5ddd3; border-radius: 13px; background: #f1f4ed; }
+.barcode-queue-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.barcode-queue-head strong, .barcode-queue-head small { display: block; }
+.barcode-queue-head strong { font-size: 11px; }
+.barcode-queue-head small { margin-top: 2px; color: #7b877e; font-size: 8px; }
+.barcode-queue-head > button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border: 0; border-radius: 8px; background: var(--green); color: white; font-size: 9px; font-weight: 800; cursor: pointer; }
+.barcode-queue-head > button svg { width: 13px; }
+.barcode-queue > div:last-child { display: grid; gap: 6px; max-height: 190px; overflow-y: auto; scrollbar-width: thin; }
+.barcode-queue article { display: grid; grid-template-columns: 34px minmax(0, 1fr) 30px; align-items: center; gap: 8px; padding: 7px; border: 1px solid #dde2da; border-radius: 9px; background: #fffdf8; }
+.barcode-queue article > span { display: grid; place-items: center; width: 34px; height: 34px; overflow: hidden; border-radius: 8px; background: #f0f0e9; font-size: 19px; }
+.barcode-queue article img { width: 100%; height: 100%; object-fit: contain; }
+.barcode-queue article p { min-width: 0; margin: 0; }
+.barcode-queue article strong, .barcode-queue article small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barcode-queue article strong { font-size: 10px; }
+.barcode-queue article small { margin-top: 2px; color: #7d8780; font-size: 8px; }
+.barcode-queue article > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid #e4d6cf; border-radius: 8px; background: #fff8f4; color: #a45c43; cursor: pointer; }
+.barcode-queue article > button svg { width: 13px; }
 .duplicate-product { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; border-radius: 9px; background: #e6eee3; color: #4f6e58; }
 .duplicate-product svg { width: 16px; }
 .duplicate-product strong { display: block; font-size: 10px; }
@@ -454,6 +474,8 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .product-preview { grid-template-columns: 54px 1fr; }
   .product-preview > img, .product-preview > span { width: 54px; height: 54px; }
   .product-preview button { grid-column: 1 / -1; min-height: 34px; }
+  .barcode-review-actions { grid-template-columns: 1fr; }
+  .barcode-queue { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -8px 24px rgba(37,63,50,.08); }
   .barcode-launch { grid-template-columns: 38px 1fr auto; }
   .barcode-launch > span { width: 38px; height: 38px; }
 }
