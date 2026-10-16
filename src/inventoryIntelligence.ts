@@ -1,19 +1,16 @@
 import { expirationDateFromDays, withExpirationDate } from './freshness'
 import { getFoodIntelligence } from './foodCatalog'
-import { parseSmartEntry, sameFoodAndUnit } from './smartEntry'
+import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { Category, GroceryItem, InventoryItem } from './types'
-import { convertAmount } from './measurements'
 import { mergeProductMetadata } from './productIdentity'
+import { collapseInventoryPresence } from './inventoryPresence'
+import { convertAmount } from './measurements'
 
 const genericUnits = new Set(['item', 'items'])
 
 function inferredUnit(name: string, unit: string) {
   if (!genericUnits.has(unit.trim().toLowerCase())) return unit
   return getFoodIntelligence(name)?.profile.defaultUnit || unit
-}
-
-function comparable(item: Pick<InventoryItem, 'name' | 'unit' | 'barcode'>) {
-  return { name: item.name, unit: inferredUnit(item.name, item.unit), barcode: item.barcode }
 }
 
 function earlierExpiration(current: InventoryItem, incoming: InventoryItem) {
@@ -24,13 +21,13 @@ function earlierExpiration(current: InventoryItem, incoming: InventoryItem) {
 }
 
 export function mergeInventoryItems(current: InventoryItem[], incoming: InventoryItem[]) {
-  const items = current.map((item) => ({ ...item }))
+  const items = collapseInventoryPresence(current)
   let merged = 0
   let added = 0
 
   incoming.forEach((candidate) => {
-    const prepared = withExpirationDate({ ...candidate, unit: inferredUnit(candidate.name, candidate.unit) })
-    const existingIndex = items.findIndex((item) => sameFoodAndUnit(comparable(item), comparable(prepared)))
+    const prepared = withExpirationDate({ ...candidate, quantity: 1, unit: 'item' })
+    const existingIndex = items.findIndex((item) => normalizeFoodName(item.name) === normalizeFoodName(prepared.name))
     if (existingIndex < 0) {
       items.push(prepared)
       added += 1
@@ -42,7 +39,8 @@ export function mergeInventoryItems(current: InventoryItem[], incoming: Inventor
     items[existingIndex] = {
       ...withSoonerDate,
       ...mergeProductMetadata(existing, prepared),
-      quantity: Number((existing.quantity + (convertAmount(prepared.quantity, prepared.unit, existing.unit) || 0)).toFixed(3)),
+      quantity: 1,
+      unit: 'item',
     }
     merged += 1
   })
@@ -69,8 +67,8 @@ export function groceryCategory(item: Pick<GroceryItem, 'name'>): Category {
   return getFoodIntelligence(item.name)?.profile.category || 'Other'
 }
 
-export function groceryEmoji(item: Pick<GroceryItem, 'name'>) {
-  return getFoodIntelligence(item.name)?.profile.emoji || '🛒'
+export function groceryEmoji(item: Pick<GroceryItem, 'name' | 'emoji'>) {
+  return item.emoji || getFoodIntelligence(item.name)?.profile.emoji || '🛒'
 }
 
 export function mergeGroceryItems(current: GroceryItem[], incoming: GroceryItem[]) {
@@ -107,14 +105,13 @@ export function inventoryItemFromGrocery(item: GroceryItem, id: string): Invento
   const intelligence = getFoodIntelligence(item.name)
   const profile = intelligence?.profile
   const expiresIn = profile?.shelfLifeDays ?? null
-  const purchased = purchasedGroceryAmount(item)
   const expiresOn = item.purchase?.expiresOn || expirationDateFromDays(expiresIn)
   return withExpirationDate({
     id,
     name: profile?.name || item.name.trim(),
     emoji: profile?.emoji || '🥫',
-    quantity: purchased.amount,
-    unit: inferredUnit(item.name, purchased.unit),
+    quantity: 1,
+    unit: 'item',
     category: profile?.category || 'Other',
     location: item.purchase?.location || profile?.location || 'Pantry',
     expiresIn,

@@ -19,22 +19,21 @@ describe('weekly meal planning', () => {
     expect(dates.map(localDateKey)).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11'])
   })
 
-  it('combines planned quantities before subtracting kitchen inventory', () => {
+  it('combines planned quantities only for ingredients absent from the kitchen', () => {
     const entries: MealPlanEntry[] = [
       { id: 'one', date: '2026-10-05', recipeId: 'tacos', servings: 2, mealSlot: 'dinner' },
       { id: 'two', date: '2026-10-06', recipeId: 'tacos', servings: 4, mealSlot: 'dinner' },
     ]
     expect(groceryForMealPlan(entries, [recipe], inventory)).toEqual([
-      { name: 'Chicken breast', amount: 2, unit: 'lb', checked: false },
       { name: 'Tortillas', amount: 12, unit: 'whole', checked: false },
     ])
   })
 
-  it('subtracts inventory stored in a compatible measurement unit', () => {
+  it('considers an ingredient present regardless of its legacy measurement unit', () => {
     const milkRecipe: Recipe = { ...recipe, id: 'oats', ingredients: [{ name: 'Milk', amount: 0.5, unit: 'cups' }] }
     const entries: MealPlanEntry[] = [{ id: 'oats', date: '2026-10-05', recipeId: 'oats', servings: 2, mealSlot: 'dinner' }]
     const metricMilk: InventoryItem[] = [{ id: 'milk', name: 'Milk', emoji: '🥛', quantity: 100, unit: 'ml', category: 'Dairy', location: 'Fridge', expiresIn: 4 }]
-    expect(groceryForMealPlan(entries, [milkRecipe], metricMilk)).toEqual([{ name: 'Milk', amount: 0.08, unit: 'cups', checked: false }])
+    expect(groceryForMealPlan(entries, [milkRecipe], metricMilk)).toEqual([])
   })
 
   it('copies every meal slot to another day and replaces that day', () => {

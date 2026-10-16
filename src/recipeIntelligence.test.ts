@@ -14,17 +14,17 @@ const inventory: InventoryItem[] = [
 ]
 
 describe('matchRecipes', () => {
-  it('ranks recipes and returns only the quantity still missing', () => {
-    const [match] = matchRecipes([recipe], inventory)
+  it('treats an ingredient as available by presence and returns the full recipe quantity when absent', () => {
+    const [match] = matchRecipes([recipe], inventory.filter((item) => item.name === 'Milk'))
     expect(match.available).toBe(50)
-    expect(match.urgent).toBe(1)
-    expect(match.missing).toEqual([{ name: 'Carrots', amount: 2, unit: 'whole', checked: false }])
+    expect(match.urgent).toBe(0)
+    expect(match.missing).toEqual([{ name: 'Carrots', amount: 4, unit: 'whole', checked: false }])
   })
 
-  it('does not treat incompatible units as interchangeable', () => {
+  it('ignores legacy kitchen units when the ingredient is present', () => {
     const [match] = matchRecipes([{ ...recipe, ingredients: [{ name: 'Milk', amount: 1, unit: 'bottle' }] }], inventory)
-    expect(match.available).toBe(0)
-    expect(match.missing[0].amount).toBe(1)
+    expect(match.available).toBe(100)
+    expect(match.missing).toEqual([])
   })
 
   it('matches compatible kitchen units automatically', () => {

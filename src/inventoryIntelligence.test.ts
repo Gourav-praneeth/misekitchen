@@ -15,14 +15,14 @@ describe('duplicate-safe inventory intelligence', () => {
 
     expect(result).toMatchObject({ merged: 1, added: 0 })
     expect(result.items).toHaveLength(1)
-    expect(result.items[0]).toMatchObject({ id: 'carrots', quantity: 5, unit: 'whole', expiresOn: '2026-10-15' })
+    expect(result.items[0]).toMatchObject({ id: 'carrots', quantity: 1, unit: 'item', expiresOn: '2026-10-15' })
   })
 
-  it('keeps incompatible quantities separate', () => {
+  it('collapses the same ingredient even when legacy units differ', () => {
     const rice: InventoryItem = { ...carrots, id: 'rice-cups', name: 'Rice', emoji: '🍚', quantity: 2, unit: 'cups', category: 'Pantry', location: 'Pantry' }
     const bag = { ...rice, id: 'rice-bag', quantity: 1, unit: 'bag' }
 
-    expect(mergeInventoryItems([rice], [bag])).toMatchObject({ merged: 0, added: 1 })
+    expect(mergeInventoryItems([rice], [bag])).toMatchObject({ merged: 1, added: 0, items: [{ quantity: 1, unit: 'item' }] })
   })
 
   it('recognizes the same barcode and preserves product metadata when merging', () => {
@@ -30,7 +30,7 @@ describe('duplicate-safe inventory intelligence', () => {
     const incoming = { ...carrots, id: 'second', name: 'Store carrots', quantity: 250, unit: 'g', barcode: '4006381333931', brand: 'Garden Co' }
     const result = mergeInventoryItems([current], [incoming])
     expect(result).toMatchObject({ merged: 1, added: 0 })
-    expect(result.items[0]).toMatchObject({ quantity: 500, barcode: '4006381333931', brand: 'Garden Co' })
+    expect(result.items[0]).toMatchObject({ quantity: 1, unit: 'item', barcode: '4006381333931', brand: 'Garden Co' })
   })
 
   it('parses a natural grocery entry and supplies its food icon', () => {
@@ -63,14 +63,14 @@ describe('duplicate-safe inventory intelligence', () => {
 
   it('converts purchased groceries into intelligent kitchen items', () => {
     expect(inventoryItemFromGrocery({ name: 'broccoli', amount: 2, unit: 'item', checked: true }, 'b1')).toMatchObject({
-      name: 'Broccoli', emoji: '🥦', quantity: 2, unit: 'head', category: 'Produce', location: 'Fridge', expiresIn: 6,
+      name: 'Broccoli', emoji: '🥦', quantity: 1, unit: 'item', category: 'Produce', location: 'Fridge', expiresIn: 6,
     })
   })
 
   it('transfers the actual package purchase instead of the recipe requirement', () => {
     const almonds = { name: 'Almonds', amount: 6, unit: 'almonds', checked: true, purchase: { packageCount: 2, packageSize: 500, packageUnit: 'g', location: 'Fridge' as const, expiresOn: '2026-11-01', barcode: '4006381333931', brand: 'Market Nuts', productSource: 'open-food-facts' as const } }
     expect(purchasedGroceryAmount(almonds)).toEqual({ amount: 1000, unit: 'g' })
-    expect(inventoryItemFromGrocery(almonds, 'almonds-1')).toMatchObject({ quantity: 1000, unit: 'g', location: 'Fridge', expiresOn: '2026-11-01', barcode: '4006381333931', brand: 'Market Nuts' })
+    expect(inventoryItemFromGrocery(almonds, 'almonds-1')).toMatchObject({ quantity: 1, unit: 'item', location: 'Fridge', expiresOn: '2026-11-01', barcode: '4006381333931', brand: 'Market Nuts' })
   })
 
   it('gives every default recipe ingredient a specific grocery icon', () => {

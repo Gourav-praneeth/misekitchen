@@ -1,6 +1,7 @@
 import { normalizeFoodName } from './smartEntry'
 import type { GroceryItem, InventoryItem, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
-import { availableAmount, convertAmount } from './measurements'
+import { convertAmount } from './measurements'
+import { hasIngredient } from './inventoryPresence'
 
 export function localDateKey(date: Date) {
   const year = date.getFullYear()
@@ -98,8 +99,7 @@ export function groceryForMealPlan(entries: MealPlanEntry[], recipes: Recipe[], 
   })
 
   return needs.flatMap((needed) => {
-    const available = availableAmount(inventory, needed, normalizeFoodName)
-    const amount = Number(Math.max(needed.amount - available, 0).toFixed(2))
-    return amount > 0 ? [{ name: needed.name, unit: needed.unit, amount, checked: false }] : []
+    if (hasIngredient(inventory, needed)) return []
+    return [{ name: needed.name, unit: needed.unit, amount: Number(needed.amount.toFixed(2)), checked: false }]
   })
 }

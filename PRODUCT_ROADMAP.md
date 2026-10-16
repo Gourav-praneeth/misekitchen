@@ -1,6 +1,6 @@
 # Mise product roadmap
 
-Last reviewed: October 14, 2026
+Last reviewed: October 16, 2026
 
 This file is the source of truth for Mise's implementation order. Add new ideas here when they come up, even when work temporarily moves to another feature. Moving an item does not remove it from the roadmap; record the reason in the decision log.
 
@@ -15,7 +15,18 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 
 ## Current implementation order
 
-### 1. Barcode scanning reliability — In progress
+### 1. Effortless kitchen tracking — In progress
+
+- [x] Replace measured kitchen stock with ingredient presence while keeping recipe and grocery quantities.
+- [x] Ask what ran out after cooking instead of deducting measured amounts.
+- [x] Review generated and bulk grocery additions before saving.
+- [x] Indicate grocery items newly added by another household member.
+- [x] Remember household icon choices and anonymously count confirmed catalog gaps.
+- [ ] Validate the complete signed-in two-member flow after applying the Supabase migration.
+
+Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
+
+### 2. Barcode scanning reliability — In progress
 
 The core mobile scanning workflow, product lookup, multi-product queue, household product memory, retries, offline fallback, and manual review are implemented.
 
@@ -30,7 +41,7 @@ Remaining validation:
 
 Exit criteria: scanning is reliable enough for regular grocery unloading without creating incorrect inventory or trapping the user when lookup fails.
 
-### 2. Smarter recommendations — Done
+### 3. Smarter recommendations — Done
 
 Make Overview and recipe suggestions more useful than a simple ingredient-match ranking.
 
@@ -44,7 +55,7 @@ Make Overview and recipe suggestions more useful than a simple ingredient-match 
 
 Exit criteria: a user can understand why a meal was suggested and act on it in one or two taps.
 
-### 3. Grocery List 2.1 — Done
+### 4. Grocery List 2.1 — Done
 
 - [x] Keep duplicate merging conservative while source tracking is deferred: compatible duplicates use the larger requirement instead of adding blindly.
 - [x] Let users customize aisle order and provide a compact mobile in-store mode.
@@ -55,7 +66,7 @@ Exit criteria: a user can understand why a meal was suggested and act on it in o
 
 Exit criteria: shopping is fast on a phone, actual package quantities reach inventory, and no duplicate is inflated without enough source information.
 
-### 4. Meal Planner 2.1 — On hold
+### 5. Meal Planner 2.1 — On hold
 
 Build on the current weekly planner after recommendation ranking is available.
 
@@ -69,7 +80,7 @@ Build on the current weekly planner after recommendation ranking is available.
 
 Exit criteria: planning a useful week on a phone is faster than building the same plan one slot at a time.
 
-### 5. Smart Entry and receipt refinement — Queued
+### 6. Smart Entry and receipt refinement — Queued
 
 - Expand the food intelligence catalog using real tester receipts and corrections.
 - Improve package-size, brand, and date extraction from receipt text.
@@ -114,6 +125,8 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 - A shared grouped unit picker across inventory, groceries, staples, recipes, Smart Entry review, and barcode review, with custom-unit support.
 
 ## Decision log
+
+- **October 16, 2026:** Beta feedback showed that exact kitchen quantities created more work than value. Inventory now represents ingredient presence; quantities remain in recipes and grocery planning, and cooking completion asks only what ran out.
 
 - **October 14, 2026:** Barcode scanning was pulled ahead of smarter recommendations and Meal Planner 2.1 because reliable product entry is foundational to accurate inventory, recipes, and grocery planning. After barcode beta validation, work returns to smarter recommendations, followed by Meal Planner 2.1.
 - **October 14, 2026:** Grocery List 2.1 moved ahead of Meal Planner 2.1. Source-aware grocery provenance is deferred; package confirmation, aisle order, store mode, and accurate purchased-to-kitchen transfer proceed independently.

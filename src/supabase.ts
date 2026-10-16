@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
+import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -167,7 +167,8 @@ export async function loadCloudKitchen(householdId: string) {
       productSource: row.product_source || null,
     })) as InventoryItem[],
     grocery: (groceryResult.data || []).map((row) => ({
-      name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
+      id: row.id, name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
+      createdAt: row.created_at || null, createdBy: row.created_by || null,
     })) as GroceryItem[],
     stapleGroups: (stapleGroupResult.data || []).map((row) => ({
       id: row.id, name: row.name, sortOrder: Number(row.sort_order),
@@ -316,7 +317,7 @@ export async function saveInventorySnapshot(householdId: string, items: Inventor
   if (items.length) {
     const baseRows = items.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
-      quantity: item.quantity, unit: item.unit, category: item.category, location: item.location,
+      quantity: 1, unit: 'item', category: item.category, location: item.location,
       expires_in: legacyExpirationDaysForStorage(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
     }))
     const productRows = items.map((item, index) => ({
@@ -344,7 +345,7 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
   if (!supabase) return
   const rows = items.map((item) => ({
     household_id: householdId,
-    id: `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    id: item.id || `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
   }))
   if (rows.length) {
@@ -357,6 +358,56 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
     const { error } = await supabase.from('grocery_items').delete().eq('household_id', householdId)
     if (error) throw error
   }
+}
+
+export async function loadGroceryItems(householdId: string): Promise<GroceryItem[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name')
+  if (error) throw error
+  return (data || []).map((row) => ({
+    id: row.id, name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
+    createdAt: row.created_at || null, createdBy: row.created_by || null,
+  }))
+}
+
+export async function loadGroceryLastSeen(householdId: string, userId: string) {
+  if (!supabase) return null
+  const { data, error } = await supabase.from('household_grocery_read_state').select('last_seen_at').eq('household_id', householdId).eq('user_id', userId).maybeSingle()
+  if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return null
+  if (error) throw error
+  return data?.last_seen_at ? String(data.last_seen_at) : null
+}
+
+export async function markGrocerySeen(householdId: string, userId: string, seenAt = new Date().toISOString()) {
+  if (!supabase) return
+  const { error } = await supabase.from('household_grocery_read_state').upsert({ household_id: householdId, user_id: userId, last_seen_at: seenAt }, { onConflict: 'household_id,user_id' })
+  if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return
+  if (error) throw error
+}
+
+export async function loadHouseholdFoodMappings(householdId: string): Promise<HouseholdFoodMapping[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.from('household_food_mappings').select('*').eq('household_id', householdId)
+  if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return []
+  if (error) throw error
+  return (data || []).map((row) => ({ normalizedName: row.normalized_name, displayName: row.display_name, emoji: row.emoji, category: row.category, location: row.location })) as HouseholdFoodMapping[]
+}
+
+export async function saveHouseholdFoodMapping(householdId: string, mapping: HouseholdFoodMapping) {
+  if (!supabase) return
+  const { error } = await supabase.from('household_food_mappings').upsert({
+    household_id: householdId, normalized_name: mapping.normalizedName, display_name: mapping.displayName,
+    emoji: mapping.emoji, category: mapping.category, location: mapping.location, updated_at: new Date().toISOString(),
+  }, { onConflict: 'household_id,normalized_name' })
+  if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return
+  if (error) throw error
+}
+
+export async function recordUnknownFoodTerm(name: string) {
+  if (!supabase) return
+  const { error } = await supabase.rpc('record_unknown_food_term', { food_name: name })
+  if (error && ['42883', 'PGRST202'].includes(error.code || '')) return
+  if (error) throw error
 }
 
 export async function saveStaplesSnapshot(householdId: string, groups: GroceryStapleGroup[], staples: GroceryStaple[]) {

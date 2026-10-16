@@ -67,6 +67,18 @@ export type GroceryPurchase = ProductMetadata & {
 export type GroceryItem = RecipeIngredient & {
   checked: boolean
   purchase?: GroceryPurchase
+  emoji?: string
+  id?: string
+  createdAt?: string | null
+  createdBy?: string | null
+}
+
+export type HouseholdFoodMapping = {
+  normalizedName: string
+  displayName: string
+  emoji: string
+  category: Category
+  location: Location
 }
 
 export type GroceryStapleGroup = {

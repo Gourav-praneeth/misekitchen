@@ -17,7 +17,7 @@ describe('barcode scan batch', () => {
     const repeated = { ...nutella, id: 'nutella-2' }
     const items = addBarcodeBatchItem([nutella], repeated)
     expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ id: 'nutella-1', quantity: 800, barcode: '3017624010701' })
+    expect(items[0]).toMatchObject({ id: 'nutella-1', quantity: 1, unit: 'item', barcode: '3017624010701' })
   })
 
   it('removes a mistake without changing the remaining scans', () => {

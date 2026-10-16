@@ -1,7 +1,7 @@
 import { daysUntilExpiration } from './freshness'
 import { normalizeFoodName } from './smartEntry'
 import { preferenceWarnings } from './foodPreferences'
-import { availableAmount } from './measurements'
+import { hasIngredient } from './inventoryPresence'
 import type { CookingHistoryEntry, FoodPreferences, GroceryItem, InventoryItem, MealPlanEntry, Recipe } from './types'
 
 export type RecommendationContext = {
@@ -47,16 +47,15 @@ export function matchRecipes(recipeList: Recipe[], inventory: InventoryItem[], p
   return recipeList.map((recipe) => {
     const statuses = recipe.ingredients.map((ingredient) => {
       const matchingItems = inventory.filter((entry) => normalizeFoodName(entry.name) === normalizeFoodName(ingredient.name))
-      const have = availableAmount(matchingItems, ingredient, normalizeFoodName)
-      return { ingredient, item: matchingItems[0], have, enough: have + 0.0005 >= ingredient.amount }
+      return { ingredient, item: matchingItems[0], enough: hasIngredient(inventory, ingredient) }
     })
-    const missing = statuses.flatMap(({ ingredient, have, enough }) => enough ? [] : [{
+    const missing = statuses.flatMap(({ ingredient, enough }) => enough ? [] : [{
       ...ingredient,
-      amount: Number(Math.max(ingredient.amount - have, 0).toFixed(2)),
+      amount: Number(ingredient.amount.toFixed(2)),
       checked: false,
     }])
-    const urgent = statuses.filter(({ item, have }) => {
-      if (!item || have <= 0) return false
+    const urgent = statuses.filter(({ item }) => {
+      if (!item) return false
       const days = daysUntilExpiration(item)
       return days !== null && days <= 3
     }).length
