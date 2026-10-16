@@ -22,6 +22,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Review generated and bulk grocery additions before saving.
 - [x] Indicate grocery items newly added by another household member.
 - [x] Remember household icon choices and anonymously count confirmed catalog gaps.
+- [x] Reconcile household inventory, groceries, recipes, plans, staples, cooking history, and product memory through Supabase Realtime without rewriting unrelated collections.
 - [ ] Validate the complete signed-in two-member flow after applying the Supabase migration.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.

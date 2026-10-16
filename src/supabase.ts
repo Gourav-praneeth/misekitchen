@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import type { KitchenCollection } from './collaborationSync'
 import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
@@ -450,14 +451,15 @@ type KitchenSnapshot = {
   mealPlanTemplates?: MealPlanTemplate[]
 }
 
-export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot) {
+export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot, collections: KitchenCollection[] = ['inventory', 'grocery', 'staples', 'recipes', 'mealPlan', 'mealPlanTemplates']) {
+  const selected = new Set(collections)
   const operations: Array<readonly [string, Promise<void>]> = [
-    ['inventory', saveInventorySnapshot(householdId, snapshot.inventory)],
-    ['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery)],
-    ['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)],
-    ['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)],
-    ['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)],
-    ...(snapshot.mealPlanTemplates === undefined ? [] : [['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)] as const]),
+    ...(selected.has('inventory') ? [['inventory', saveInventorySnapshot(householdId, snapshot.inventory)] as const] : []),
+    ...(selected.has('grocery') ? [['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery)] as const] : []),
+    ...(selected.has('staples') ? [['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)] as const] : []),
+    ...(selected.has('recipes') ? [['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)] as const] : []),
+    ...(selected.has('mealPlan') ? [['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)] as const] : []),
+    ...(selected.has('mealPlanTemplates') && snapshot.mealPlanTemplates !== undefined ? [['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)] as const] : []),
   ]
   const results = await Promise.allSettled(operations.map(([, operation]) => operation))
   const failures = results.flatMap((result, index) => result.status === 'rejected'

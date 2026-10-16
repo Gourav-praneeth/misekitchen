@@ -11,6 +11,7 @@ import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rem
 import { applyBarcodeToGroceryPurchase, barcodeProductFromRemembered, bestGroceryBarcodeMatch, groceryBarcodeMatchScore, groceryItemFromBarcodeProduct } from './groceryBarcode'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
+import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, type CollaborativeKitchenSnapshot, type KitchenFingerprints } from './collaborationSync'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
@@ -33,7 +34,7 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadGroceryItems, loadGroceryLastSeen, loadHouseholdActivity, loadHouseholdFoodMappings, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markGrocerySeen, markHouseholdInitialized, recordUnknownFoodTerm, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveHouseholdFoodMapping, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadGroceryLastSeen, loadHouseholdActivity, loadHouseholdFoodMappings, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markGrocerySeen, markHouseholdInitialized, recordUnknownFoodTerm, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveHouseholdFoodMapping, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
 import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
 import UnitPicker from './UnitPicker'
@@ -166,9 +167,21 @@ function App() {
   const syncChannel = useRef<BroadcastChannel | null>(null)
   const syncRevision = useRef(0)
   const localChangesPending = useRef(false)
+  const remoteRefreshPending = useRef(false)
+  const remoteRefreshTimer = useRef<number | null>(null)
+  const syncBaseline = useRef<Partial<KitchenFingerprints>>({})
+  const forceAllCollectionsSave = useRef(false)
   const syncConflict = useRef(false)
   const applyingRemoteSnapshot = useRef(false)
   const skipNextCloudSave = useRef(false)
+
+  function scheduleRemoteRefresh() {
+    if (remoteRefreshTimer.current !== null) window.clearTimeout(remoteRefreshTimer.current)
+    remoteRefreshTimer.current = window.setTimeout(() => {
+      remoteRefreshTimer.current = null
+      setLoadRetryToken((value) => value + 1)
+    }, 180)
+  }
 
   useEffect(() => {
     if (!supabase) return
@@ -198,6 +211,10 @@ function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 60_000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => () => {
+    if (remoteRefreshTimer.current !== null) window.clearTimeout(remoteRefreshTimer.current)
   }, [])
 
   useEffect(() => {
@@ -288,6 +305,7 @@ function App() {
         window.setTimeout(() => {
           if (!active) return
           localChangesPending.current = Boolean(pending?.householdId === id)
+          forceAllCollectionsSave.current = Boolean(pending?.householdId === id)
           skipNextCloudSave.current = !pending?.householdId || pending.householdId !== id
           setCloudReady(true)
           setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
@@ -372,14 +390,26 @@ function App() {
   useEffect(() => {
     if (!session || !householdId || !cloudReady || !supabase || demoMode) return
     const client = supabase
-    const channel = client.channel(`mise-grocery-${householdId}`).on('postgres_changes', { event: '*', schema: 'public', table: 'grocery_items', filter: `household_id=eq.${householdId}` }, (payload) => {
-      const row = (payload.new || {}) as Record<string, unknown>
-      if (payload.eventType === 'INSERT' && row.created_by && row.created_by !== session.user.id && row.id) {
-        setNewGroceryIds((current) => new Set(current).add(String(row.id)))
-      }
-      if (localChangesPending.current) return
-      void loadGroceryItems(householdId).then(setGrocery).catch((error) => console.error('Live grocery update could not be loaded.', error))
-    }).subscribe()
+    const tables = ['inventory_items', 'grocery_items', 'household_recipes', 'meal_plan_entries', 'meal_plan_templates', 'grocery_staple_groups', 'grocery_staples', 'cooking_history', 'household_products', 'household_food_mappings']
+    const channel = client.channel(`mise-household-${householdId}`)
+    tables.forEach((table) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, (payload) => {
+        const row = (payload.new || {}) as Record<string, unknown>
+        if (table === 'grocery_items' && payload.eventType === 'INSERT' && row.created_by && row.created_by !== session.user.id && row.id) {
+          setNewGroceryIds((current) => new Set(current).add(String(row.id)))
+        }
+        if (localChangesPending.current) {
+          remoteRefreshPending.current = true
+          return
+        }
+        scheduleRemoteRefresh()
+      })
+    })
+    channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'households', filter: `id=eq.${householdId}` }, () => {
+      if (localChangesPending.current) remoteRefreshPending.current = true
+      else scheduleRemoteRefresh()
+    })
+    channel.subscribe()
     return () => { void client.removeChannel(channel) }
   }, [session, householdId, cloudReady, demoMode])
 
@@ -436,20 +466,29 @@ function App() {
 
   useEffect(() => {
     if (!householdId || !cloudReady || !session) return
+    const shared: CollaborativeKitchenSnapshot = { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates }
+    const fingerprints = kitchenFingerprints(shared)
     if (applyingRemoteSnapshot.current) {
       applyingRemoteSnapshot.current = false
+      syncBaseline.current = fingerprints
       localChangesPending.current = false
       return
     }
     if (skipNextCloudSave.current) {
       skipNextCloudSave.current = false
+      syncBaseline.current = fingerprints
       localChangesPending.current = false
       return
     }
     if (syncConflict.current) { setSyncState('conflict'); return }
+    const dirtyCollections = changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current)
+    forceAllCollectionsSave.current = false
+    const snapshot = { householdId, ...shared, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    if (!dirtyCollections.length) {
+      writeStoredKitchen('cache', session.user.id, snapshot)
+      return
+    }
     const reservation = saveQueue.current.reserve()
-    const templatesForCloud = mealPlanTemplatesDirty.current ? mealPlanTemplates : undefined
-    const snapshot = { householdId, inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     localChangesPending.current = true
     writeStoredKitchen('pending', session.user.id, snapshot)
     setSyncState(isOnline ? 'syncing' : 'offline')
@@ -464,7 +503,7 @@ function App() {
       }
       const result = await reservation.run(async () => {
         try {
-          await withRetry(() => saveKitchenSnapshot(householdId, { inventory, grocery, stapleGroups, staples, recipes: customRecipes, mealPlan, mealPlanTemplates: templatesForCloud }))
+          await withRetry(() => saveKitchenSnapshot(householdId, shared, dirtyCollections))
         } finally {
           releaseSyncLease(localStorage, leaseKey, tabId.current)
         }
@@ -473,12 +512,17 @@ function App() {
       if (!result.error) {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
-        if (templatesForCloud) mealPlanTemplatesDirty.current = false
+        syncBaseline.current = acceptKitchenCollections(syncBaseline.current, fingerprints, dirtyCollections)
+        if (dirtyCollections.includes('mealPlanTemplates')) mealPlanTemplatesDirty.current = false
         localChangesPending.current = false
         const revision = Date.now()
         syncRevision.current = revision
         syncChannel.current?.postMessage({ type: 'kitchen-saved', senderId: tabId.current, revision, snapshot } satisfies KitchenSyncMessage)
         setSyncState('saved')
+        if (remoteRefreshPending.current) {
+          remoteRefreshPending.current = false
+          scheduleRemoteRefresh()
+        }
       } else {
         console.error(result.error instanceof Error ? result.error.message : String(result.error))
         setSyncState(navigator.onLine ? 'error' : 'offline')
