@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowRight, ArrowUp, BellRing, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy, Flashlight,
   ExternalLink, House, KeyRound, Leaf, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
@@ -169,19 +169,61 @@ function App() {
   const localChangesPending = useRef(false)
   const remoteRefreshPending = useRef(false)
   const remoteRefreshTimer = useRef<number | null>(null)
+  const remoteRefreshRequest = useRef(0)
   const syncBaseline = useRef<Partial<KitchenFingerprints>>({})
   const forceAllCollectionsSave = useRef(false)
   const syncConflict = useRef(false)
   const applyingRemoteSnapshot = useRef(false)
   const skipNextCloudSave = useRef(false)
 
-  function scheduleRemoteRefresh() {
+  const reconcileRemoteKitchen = useCallback(async () => {
+    if (!session || !householdId || demoMode || localChangesPending.current) {
+      remoteRefreshPending.current = true
+      return
+    }
+    const targetHousehold = householdId
+    const request = ++remoteRefreshRequest.current
+    try {
+      const [cloud, mappings] = await Promise.all([loadCloudKitchen(targetHousehold), loadHouseholdFoodMappings(targetHousehold)])
+      if (request !== remoteRefreshRequest.current) return
+      if (localChangesPending.current) {
+        remoteRefreshPending.current = true
+        return
+      }
+      const nextInventory = collapseInventoryPresence(cloud.inventory.map((item) => withExpirationDate(item)))
+      const shared: CollaborativeKitchenSnapshot = {
+        inventory: nextInventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples,
+        recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates,
+      }
+      applyingRemoteSnapshot.current = true
+      syncBaseline.current = kitchenFingerprints(shared)
+      setInventory(nextInventory)
+      setGrocery(cloud.grocery)
+      setStapleGroups(cloud.stapleGroups)
+      setStaples(cloud.staples)
+      setCustomRecipes(cloud.recipes)
+      setMealPlan(cloud.mealPlan)
+      setMealPlanTemplates(cloud.mealPlanTemplates)
+      setCookingHistory(cloud.cookingHistory)
+      setProductMemory(cloud.productMemory)
+      setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
+      setFoodMappings(mappings)
+      mealPlanTemplatesDirty.current = false
+      const snapshot = { householdId: targetHousehold, ...shared, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+      writeStoredKitchen('cache', session.user.id, snapshot)
+      setSyncState('saved')
+    } catch (error) {
+      console.error('Household changes could not be reconciled.', error)
+    }
+  }, [session, householdId, demoMode])
+
+  const scheduleRemoteRefresh = useCallback(() => {
     if (remoteRefreshTimer.current !== null) window.clearTimeout(remoteRefreshTimer.current)
     remoteRefreshTimer.current = window.setTimeout(() => {
       remoteRefreshTimer.current = null
-      setLoadRetryToken((value) => value + 1)
+      void reconcileRemoteKitchen()
     }, 180)
-  }
+  }, [reconcileRemoteKitchen])
 
   useEffect(() => {
     if (!supabase) return
@@ -215,6 +257,7 @@ function App() {
 
   useEffect(() => () => {
     if (remoteRefreshTimer.current !== null) window.clearTimeout(remoteRefreshTimer.current)
+    remoteRefreshRequest.current += 1
   }, [])
 
   useEffect(() => {
@@ -410,8 +453,11 @@ function App() {
       else scheduleRemoteRefresh()
     })
     channel.subscribe()
-    return () => { void client.removeChannel(channel) }
-  }, [session, householdId, cloudReady, demoMode])
+    return () => {
+      remoteRefreshRequest.current += 1
+      void client.removeChannel(channel)
+    }
+  }, [session, householdId, cloudReady, demoMode, scheduleRemoteRefresh])
 
   useEffect(() => {
     const was = previousView.current
@@ -529,7 +575,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken, scheduleRemoteRefresh])
 
   useEffect(() => {
     if (syncState === 'saved') return
