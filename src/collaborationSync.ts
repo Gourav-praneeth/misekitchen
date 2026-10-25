@@ -42,3 +42,11 @@ export function acceptKitchenCollections(baseline: Partial<KitchenFingerprints>,
   collections.forEach((collection) => { next[collection] = current[collection] })
   return next
 }
+
+export function unseenGroceryItemIds(items: GroceryItem[], userId: string, lastSeenAt: string | null, now = Date.now()) {
+  const cutoff = lastSeenAt ? new Date(lastSeenAt).getTime() : now
+  return new Set(items.flatMap((item) => {
+    if (!item.id || !item.createdBy || item.createdBy === userId || !item.createdAt) return []
+    return new Date(item.createdAt).getTime() > cutoff ? [item.id] : []
+  }))
+}

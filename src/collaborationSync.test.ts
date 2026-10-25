@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, type CollaborativeKitchenSnapshot } from './collaborationSync'
+import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
 
 const empty: CollaborativeKitchenSnapshot = {
   inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [],
@@ -30,5 +30,28 @@ describe('household collection synchronization', () => {
     const accepted = acceptKitchenCollections(baseline, changed, ['inventory'])
     expect(changedKitchenCollections(changed, accepted)).toEqual(['grocery'])
     expect(changedKitchenCollections(changed, accepted, true)).toHaveLength(6)
+  })
+
+  it('does not treat a remote row reorder as a household change', () => {
+    const first = { ...empty, inventory: [
+      { id: 'milk', name: 'Milk', emoji: '🥛', quantity: 1, unit: 'item', category: 'Dairy' as const, location: 'Fridge' as const, expiresIn: 5 },
+      { id: 'oats', name: 'Oats', emoji: '🌾', quantity: 1, unit: 'item', category: 'Pantry' as const, location: 'Pantry' as const, expiresIn: 90 },
+    ] }
+    const reordered = { ...first, inventory: [...first.inventory].reverse() }
+    expect(changedKitchenCollections(kitchenFingerprints(reordered), kitchenFingerprints(first))).toEqual([])
+  })
+
+  it('shows new grocery rows only to another household member after their last visit', () => {
+    const items = [
+      { id: 'own', name: 'Milk', amount: 1, unit: 'item', checked: false, createdBy: 'member-a', createdAt: '2026-10-24T18:00:00Z' },
+      { id: 'remote-new', name: 'Oats', amount: 1, unit: 'item', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T18:05:00Z' },
+      { id: 'remote-seen', name: 'Eggs', amount: 1, unit: 'item', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T17:45:00Z' },
+    ]
+    expect([...unseenGroceryItemIds(items, 'member-a', '2026-10-24T18:00:00Z')]).toEqual(['remote-new'])
+  })
+
+  it('initializes an existing grocery list as already seen', () => {
+    const items = [{ id: 'existing', name: 'Milk', amount: 1, unit: 'item', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T18:00:00Z' }]
+    expect([...unseenGroceryItemIds(items, 'member-a', null, new Date('2026-10-24T18:10:00Z').getTime())]).toEqual([])
   })
 })

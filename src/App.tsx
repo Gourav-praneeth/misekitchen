@@ -11,7 +11,7 @@ import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rem
 import { applyBarcodeToGroceryPurchase, barcodeProductFromRemembered, bestGroceryBarcodeMatch, groceryBarcodeMatchScore, groceryItemFromBarcodeProduct } from './groceryBarcode'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
-import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, type CollaborativeKitchenSnapshot, type KitchenFingerprints } from './collaborationSync'
+import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type KitchenFingerprints } from './collaborationSync'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
@@ -422,8 +422,7 @@ function App() {
           })
           return next.some((item, index) => item !== current[index] && item.emoji !== current[index].emoji) ? next : current
         })
-        const cutoff = lastSeen ? new Date(lastSeen).getTime() : Date.now()
-        setNewGroceryIds(new Set(grocery.flatMap((item) => item.id && item.createdBy && item.createdBy !== session.user.id && item.createdAt && new Date(item.createdAt).getTime() > cutoff ? [item.id] : [])))
+        setNewGroceryIds(unseenGroceryItemIds(grocery, session.user.id, lastSeen))
         if (!lastSeen) void markGrocerySeen(householdId, session.user.id)
       })
       .catch((error) => console.error('Household collaboration details could not be loaded.', error))
@@ -1078,10 +1077,10 @@ function RecommendationPlanner({ recipe, onClose, onPlan }: { recipe: RecipeMatc
 function Kitchen({ inventory, setInventory, category, setCategory, onAdd, onSmartAdd, onEdit, onRestock }: { inventory: InventoryItem[]; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void }) {
   const [query, setQuery] = useState('')
   const filtered = inventory.filter((item) => (category === 'All' || item.category === category) && normalize(item.name).includes(normalize(query)))
-  return <section className="inner-page">
+  return <section className="inner-page kitchen-page">
     <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>Keep a light touch on what you have, where it lives, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
     <div className="toolbar"><label><Search size={17} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs">{(['All', ...categories] as const).map((option) => <button className={category === option ? 'active' : ''} onClick={() => setCategory(option)} key={option}>{option}</button>)}</div></div>
-    <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Availability</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}</small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /></button><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => setInventory((all) => all.filter((entry) => entry.id !== item.id))} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
+    <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Availability</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}<span className="mobile-item-location"> · {item.location}</span></small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => setInventory((all) => all.filter((entry) => entry.id !== item.id))} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
     {!filtered.length && <Empty title="Nothing found" copy="Try another search or add a new ingredient." />}
   </section>
 }
@@ -1089,10 +1088,10 @@ function Kitchen({ inventory, setInventory, category, setCategory, onAdd, onSmar
 function Freshness({ item }: { item: InventoryItem }) {
   const days = daysUntilExpiration(item)
   if (days === null) return <span className="freshness neutral">Shelf stable</span>
-  if (days < 0) return <span className="freshness danger">{Math.abs(days)}d past use-by</span>
+  if (days < 0) return <span className="freshness danger">{Math.abs(days)} {Math.abs(days) === 1 ? 'day' : 'days'} past use-by</span>
   if (days <= 1) return <span className="freshness danger">Use {days === 0 ? 'today' : 'tomorrow'}</span>
   if (days <= 3) return <span className="freshness soon">{days} days left</span>
-  return <span className="freshness fresh">Fresh · {days}d</span>
+  return <span className="freshness fresh">Fresh for {days} days</span>
 }
 
 function Recipes({ recipes, guidance, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onRemoveHistory, onAdd, onSaveDiscovered, onAddToGrocery, onRecipeAction, onPlanRecipe, onOpenKitchen }: { recipes: RecipeMatch[]; guidance: RecommendationGuidance | null; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onRemoveHistory: (entry: CookingHistoryEntry) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void; onRecipeAction: (recipe: RecipeMatch) => void; onPlanRecipe: (recipe: RecipeMatch) => void; onOpenKitchen: () => void }) {
@@ -1690,20 +1689,39 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
   useEffect(() => {
     if (!session || !householdId) return
     let active = true
-    Promise.all([loadHouseholds(), loadHouseholdMembers(householdId), loadHouseholdActivity(householdId)])
-      .then(async ([nextHouseholds, nextMembers, nextActivity]) => {
+    let refreshTimer: number | null = null
+    async function refreshSharedKitchen() {
+      try {
+        const [nextHouseholds, nextMembers, nextActivity] = await Promise.all([loadHouseholds(), loadHouseholdMembers(householdId!), loadHouseholdActivity(householdId!)])
         if (!active) return
         setHouseholds(nextHouseholds)
         setMembers(nextMembers)
         setActivity(nextActivity)
         setKitchenName(nextHouseholds.find((household) => household.id === householdId)?.name || '')
         if (nextHouseholds.find((household) => household.id === householdId)?.role === 'owner') {
-          const activeInvite = await loadActiveHouseholdInvite(householdId)
+          const activeInvite = await loadActiveHouseholdInvite(householdId!)
           if (active) setInvite(activeInvite)
         } else setInvite(null)
-      })
-      .catch((error) => { if (active) setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Shared kitchen details could not be loaded.' }) })
-    return () => { active = false }
+      } catch (error) {
+        if (active) setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Shared kitchen details could not be loaded.' })
+      }
+    }
+    void refreshSharedKitchen()
+    if (!supabase) return () => { active = false }
+    const client = supabase
+    function scheduleRefresh() {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => { refreshTimer = null; void refreshSharedKitchen() }, 180)
+    }
+    const channel = client.channel(`mise-household-settings-${householdId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'household_members', filter: `household_id=eq.${householdId}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'household_activity', filter: `household_id=eq.${householdId}` }, scheduleRefresh)
+      .subscribe()
+    return () => {
+      active = false
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      void client.removeChannel(channel)
+    }
   }, [session, householdId])
 
   async function saveName(event: React.FormEvent) {

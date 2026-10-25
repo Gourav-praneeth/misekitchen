@@ -1,6 +1,6 @@
 # Mise product roadmap
 
-Last reviewed: October 16, 2026
+Last reviewed: October 24, 2026
 
 This file is the source of truth for Mise's implementation order. Add new ideas here when they come up, even when work temporarily moves to another feature. Moving an item does not remove it from the roadmap; record the reason in the decision log.
 
@@ -15,7 +15,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 
 ## Current implementation order
 
-### 1. Effortless kitchen tracking — In progress
+### 1. Effortless kitchen tracking — Validation
 
 - [x] Replace measured kitchen stock with ingredient presence while keeping recipe and grocery quantities.
 - [x] Ask what ran out after cooking instead of deducting measured amounts.
@@ -81,7 +81,9 @@ Build on the current weekly planner after recommendation ranking is available.
 
 Exit criteria: planning a useful week on a phone is faster than building the same plan one slot at a time.
 
-### 6. Smart Entry and receipt refinement — Queued
+### 6. Smart Entry and receipt refinement — Parked
+
+Receipt work is intentionally paused while shared-kitchen reliability, barcode validation, and other daily-use improvements take priority.
 
 - Expand the food intelligence catalog using real tester receipts and corrections.
 - Improve package-size, brand, and date extraction from receipt text.
@@ -126,6 +128,8 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 - A shared grouped unit picker across inventory, groceries, staples, recipes, Smart Entry review, and barcode review, with custom-unit support.
 
 ## Decision log
+
+- **October 24, 2026:** Receipt and Smart Entry refinement was parked at the user's request. Work remains recorded here and will resume after higher-priority shared-kitchen and daily-use validation.
 
 - **October 16, 2026:** Beta feedback showed that exact kitchen quantities created more work than value. Inventory now represents ingredient presence; quantities remain in recipes and grocery planning, and cooking completion asks only what ran out.
 
