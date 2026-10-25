@@ -51,6 +51,7 @@ type GroceryPurchaseDraft = GroceryItem & { purchase: NonNullable<GroceryItem['p
 type GroceryAddSource = 'recipe' | 'recommendation' | 'meal plan' | 'Discover' | 'staples' | 'bulk add' | 'restock'
 type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource; onComplete?: () => void }
 type CookingDraft = { recipe: RecipeMatch; scale: number }
+type SettingsArea = 'general' | 'food' | 'household' | 'account'
 type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
 
@@ -652,8 +653,7 @@ function App() {
   }, [syncState])
   useEffect(() => {
     if (!toast) return
-    if (toast.undo) return
-    const timer = setTimeout(() => setToast(null), 3200)
+    const timer = setTimeout(() => setToast(null), toast.undo ? 5000 : 3200)
     return () => clearTimeout(timer)
   }, [toast])
 
@@ -1045,7 +1045,7 @@ function App() {
       {planningRecipe && <RecommendationPlanner recipe={planningRecipe} onClose={() => setPlanningRecipe(null)} onPlan={(date, mealSlot, servings) => planRecommendedRecipe(planningRecipe, date, mealSlot, servings)} />}
       {groceryReview && <GroceryAddReview request={groceryReview} existing={grocery} mappings={foodMappings} onClose={() => setGroceryReview(null)} onConfirm={(items) => { commitGrocery(items); groceryReview.onComplete?.(); setGroceryReview(null) }} />}
       {cookingDraft && <CookingCompletion recipe={cookingDraft.recipe} scale={cookingDraft.scale} inventory={inventory} onClose={() => setCookingDraft(null)} onComplete={(items) => completeCooking(cookingDraft.recipe, cookingDraft.scale, items)} />}
-      {toast && <div className={`toast${toast.undo ? ' undo-toast' : ''}`} role="status" aria-live="polite"><Check size={17} /><span>{toast.message}</span>{toast.undo && <><button className="toast-undo" onClick={toast.undo}><Undo2 size={14} /> Undo</button><button className="toast-dismiss" onClick={() => setToast(null)} aria-label="Dismiss Undo message"><X size={14} /></button></>}</div>}
+      {toast && <div className={`toast${toast.undo ? ' undo-toast' : ''}`} role="status" aria-live="polite"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button className="toast-undo" onClick={toast.undo}><Undo2 size={14} /> Undo</button>}{toast.undo && <i className="toast-life" aria-hidden="true" />}</div>}
     </div>
   )
 }
@@ -1811,6 +1811,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
   onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>;
   onUpdateReminderPreferences: React.Dispatch<React.SetStateAction<MealReminderPreferences>>; onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
 }) {
+  const [settingsArea, setSettingsArea] = useState<SettingsArea>('general')
   const [name, setName] = useState(displayName)
   const [preferenceDraft, setPreferenceDraft] = useState(preferences)
   const [excludedDraft, setExcludedDraft] = useState(preferences.excludedIngredients.join(', '))
@@ -1830,6 +1831,12 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
     error: 'Your changes are safe on this device and waiting to sync.',
     offline: 'You can keep working. Changes will sync when you reconnect.',
     conflict: 'Another open tab saved newer changes. Reload before continuing so nothing is overwritten.',
+  }
+  const settingsAreaCopy: Record<SettingsArea, { title: string; description: string }> = {
+    general: { title: 'Everyday settings', description: 'Update your profile, cloud sync, and meal reminders.' },
+    food: { title: 'Recipes & dietary needs', description: 'Tune recipe ideas around the way you eat.' },
+    household: { title: 'People & sharing', description: 'Manage members, invitations, and recent household activity.' },
+    account: { title: 'Help & account', description: 'Send feedback or manage your sign-in and security.' },
   }
 
   useEffect(() => {
@@ -1992,26 +1999,35 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
   }
 
   return <section className="inner-page settings-page">
-    <div className="page-title"><div><span className="eyebrow">Your Mise</span><h1>Settings</h1><p>Manage your profile, account security, and kitchen sync.</p></div></div>
+    <div className="page-title"><div><span className="eyebrow">Your Mise</span><h1>Settings</h1><p>Your preferences, household, reminders, and account in one place.</p></div></div>
     {message && <div className={`settings-message ${message.type}`}>{message.text}</div>}
-    <div className="settings-grid">
-      <article className="settings-card panel">
+    <div className="settings-workspace">
+      <nav className="settings-area-nav" aria-label="Settings areas">
+        <button type="button" className={settingsArea === 'general' ? 'active' : ''} aria-current={settingsArea === 'general' ? 'page' : undefined} onClick={() => setSettingsArea('general')}><UserRound /><span><strong>General</strong><small>Profile, sync, reminders</small></span></button>
+        <button type="button" className={settingsArea === 'food' ? 'active' : ''} aria-current={settingsArea === 'food' ? 'page' : undefined} onClick={() => setSettingsArea('food')}><Leaf /><span><strong>Food</strong><small>Diet and recipe matching</small></span></button>
+        <button type="button" className={settingsArea === 'household' ? 'active' : ''} aria-current={settingsArea === 'household' ? 'page' : undefined} onClick={() => setSettingsArea('household')}><UsersRound /><span><strong>Household</strong><small>Members and activity</small></span></button>
+        <button type="button" className={settingsArea === 'account' ? 'active' : ''} aria-current={settingsArea === 'account' ? 'page' : undefined} onClick={() => setSettingsArea('account')}><ShieldCheck /><span><strong>Account</strong><small>Feedback and security</small></span></button>
+      </nav>
+      <div className="settings-area-content">
+        <header className="settings-area-heading"><h2>{settingsAreaCopy[settingsArea].title}</h2><p>{settingsAreaCopy[settingsArea].description}</p></header>
+        <div className="settings-grid">
+      <article className="settings-card panel" hidden={settingsArea !== 'general'}>
         <div className="settings-card-head"><span><UserRound /></span><div><h2>Profile</h2><p>How you appear in your kitchen.</p></div></div>
         {session ? <form onSubmit={saveName}><label>Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Email address<input value={session.user.email || ''} disabled /></label><button className="secondary-button" disabled={working === 'name' || !name.trim() || name.trim() === displayName}>{working === 'name' ? 'Saving…' : 'Save profile'}</button></form> : <p className="settings-copy">You are using the local demo. Sign in when you want this kitchen on your other devices.</p>}
       </article>
-      <article className="settings-card panel">
+      <article className="settings-card panel" hidden={settingsArea !== 'general'}>
         <div className="settings-card-head"><span className={syncState === 'saved' ? 'healthy' : 'warning'}>{syncState === 'offline' ? <WifiOff /> : <Cloud />}</span><div><h2>Kitchen sync</h2><p>{syncCopy[syncState]}</p></div></div>
         <div className="settings-stats"><span><strong>{inventoryCount}</strong> ingredients</span><span><strong>{groceryCount}</strong> grocery items</span><span><strong>{isOnline ? 'Online' : 'Offline'}</strong> connection</span></div>
         {session && syncState !== 'saved' && <button className="secondary-button" onClick={onRetry}><RefreshCw /> {syncState === 'conflict' ? 'Reload latest kitchen' : 'Retry sync'}</button>}
       </article>
-      <article className="settings-card reminder-settings-card panel">
+      <article className="settings-card reminder-settings-card panel" hidden={settingsArea !== 'general'}>
         <div className="settings-card-head"><span className={reminderPreferences.enabled ? 'healthy' : ''}><BellRing /></span><div><h2>Meal reminders</h2><p>See timely prompts for meals you planned today.</p></div></div>
         <label className="reminder-toggle"><span><strong>In-app reminders</strong><small>Shown on your Overview while Mise is open.</small></span><input type="checkbox" role="switch" checked={reminderPreferences.enabled} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, enabled: event.target.checked }))} /></label>
         <label>Remind me before<select disabled={!reminderPreferences.enabled} value={reminderPreferences.leadMinutes} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, leadMinutes: Number(event.target.value) }))}><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select></label>
         <div className="reminder-time-grid">{mealSlots.map((slot) => <label key={slot.value}>{slot.label}<input type="time" disabled={!reminderPreferences.enabled} value={reminderPreferences.times[slot.value]} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, times: { ...current.times, [slot.value]: event.target.value } }))} /></label>)}</div>
         <p className="reminder-privacy">These times stay on this device. No paid notification or tracking service is used.</p>
       </article>
-      <article className="settings-card shared-kitchen-card panel">
+      <article className="settings-card shared-kitchen-card panel" hidden={settingsArea !== 'household'}>
         <div className="settings-card-head"><span><UsersRound /></span><div><h2>Shared kitchen</h2><p>Plan, shop, and manage ingredients with the people you live with.</p></div></div>
         {session && householdId ? <div className="shared-kitchen-layout">
           <div className="shared-kitchen-main">
@@ -2026,7 +2042,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
           <section className="household-activity"><div><span>Recent activity</span><button type="button" onClick={() => void refreshActivity()} disabled={working === 'activity'}><RefreshCw /> {working === 'activity' ? 'Refreshing…' : 'Refresh'}</button></div>{activity.length ? <ol>{activity.slice(0, 15).map((entry) => <li key={entry.id}><em>{entry.actorName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</em><p><strong>{entry.actorName}</strong> {entry.description.toLowerCase()}<small>{new Date(entry.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</small></p></li>)}</ol> : <p>No shared-kitchen changes yet.</p>}</section>
         </div> : <p className="settings-copy">Sign in to invite household members and share a kitchen.</p>}
       </article>
-      <article className="settings-card preferences-card panel">
+      <article className="settings-card preferences-card panel" hidden={settingsArea !== 'food'}>
         <div className="settings-card-head"><span><Leaf /></span><div><h2>Food preferences</h2><p>Personalize recipe discovery around how you eat.</p></div></div>
         <form onSubmit={savePreferences}>
           <label>Diet<select value={preferenceDraft.diet} onChange={(event) => setPreferenceDraft((current) => ({ ...current, diet: event.target.value as FoodPreferences['diet'] }))}><option value="">No diet preference</option>{dietPreferences.map((diet) => <option key={diet}>{diet}</option>)}</select></label>
@@ -2035,15 +2051,17 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
           <div className="preference-save"><button className="secondary-button" disabled={working === 'preferences'}>{working === 'preferences' ? 'Saving…' : 'Save food preferences'}</button><p><TriangleAlert /> For severe allergies, always verify the original recipe and product labels. Mise’s saved-recipe warnings are ingredient-name checks, not medical guarantees.</p></div>
         </form>
       </article>
-      <article className="settings-card settings-feedback-card panel">
+      <article className="settings-card settings-feedback-card panel" hidden={settingsArea !== 'account'}>
         <div className="settings-card-head"><span><MessageSquareText /></span><div><h2>Help shape Mise</h2><p>Share an idea, report a problem, or tell us what feels confusing.</p></div></div>
         <button className="secondary-button" onClick={onOpenFeedback}><Send /> Send feedback</button>
       </article>
-      <article className="settings-card panel">
+      <article className="settings-card account-settings-card panel" hidden={settingsArea !== 'account'}>
         <div className="settings-card-head"><span><ShieldCheck /></span><div><h2>Account & security</h2><p>{session ? `Signed in with ${provider}.` : 'Local demo mode.'}</p></div></div>
         {session && <div className="settings-actions"><button className="secondary-button" onClick={resetPassword} disabled={working === 'password'}><Mail /> {working === 'password' ? 'Sending…' : 'Send password reset email'}</button><button className="danger-button" onClick={onSignOut}><LogOut /> Sign out</button></div>}
         <p className="privacy-note"><KeyRound /> Mise never stores your password. Authentication is handled securely by Supabase.</p>
       </article>
+        </div>
+      </div>
     </div>
   </section>
 }
