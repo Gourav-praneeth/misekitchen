@@ -585,7 +585,8 @@ function App() {
   }, [syncState])
   useEffect(() => {
     if (!toast) return
-    const timer = setTimeout(() => setToast(null), toast.undo ? 6500 : 3200)
+    if (toast.undo) return
+    const timer = setTimeout(() => setToast(null), 3200)
     return () => clearTimeout(timer)
   }, [toast])
 
@@ -986,7 +987,7 @@ function App() {
       {planningRecipe && <RecommendationPlanner recipe={planningRecipe} onClose={() => setPlanningRecipe(null)} onPlan={(date, mealSlot, servings) => planRecommendedRecipe(planningRecipe, date, mealSlot, servings)} />}
       {groceryReview && <GroceryAddReview request={groceryReview} existing={grocery} mappings={foodMappings} onClose={() => setGroceryReview(null)} onConfirm={(items) => { commitGrocery(items); setGroceryReview(null) }} />}
       {cookingDraft && <CookingCompletion recipe={cookingDraft.recipe} scale={cookingDraft.scale} inventory={inventory} onClose={() => setCookingDraft(null)} onComplete={(items) => completeCooking(cookingDraft.recipe, cookingDraft.scale, items)} />}
-      {toast && <div className="toast"><Check size={17} /><span>{toast.message}</span>{toast.undo && <button onClick={toast.undo}><Undo2 size={14} /> Undo</button>}</div>}
+      {toast && <div className={`toast${toast.undo ? ' undo-toast' : ''}`} role="status" aria-live="polite"><Check size={17} /><span>{toast.message}</span>{toast.undo && <><button className="toast-undo" onClick={toast.undo}><Undo2 size={14} /> Undo</button><button className="toast-dismiss" onClick={() => setToast(null)} aria-label="Dismiss Undo message"><X size={14} /></button></>}</div>}
     </div>
   )
 }
