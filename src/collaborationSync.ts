@@ -1,6 +1,7 @@
 import type { GroceryItem, GroceryStaple, GroceryStapleGroup, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe } from './types'
 
 export type KitchenCollection = 'inventory' | 'grocery' | 'staples' | 'recipes' | 'mealPlan' | 'mealPlanTemplates'
+export type ForcedCollectionVersions = Partial<Record<KitchenCollection, number>>
 
 export type CollaborativeKitchenSnapshot = {
   inventory: InventoryItem[]
@@ -40,6 +41,24 @@ export function changedKitchenCollections(current: KitchenFingerprints, baseline
 export function acceptKitchenCollections(baseline: Partial<KitchenFingerprints>, current: KitchenFingerprints, collections: KitchenCollection[]) {
   const next = { ...baseline }
   collections.forEach((collection) => { next[collection] = current[collection] })
+  return next
+}
+
+export function forceKitchenCollections(current: ForcedCollectionVersions, collections: KitchenCollection[]) {
+  const next = { ...current }
+  collections.forEach((collection) => { next[collection] = (next[collection] || 0) + 1 })
+  return next
+}
+
+export function pendingForcedCollections(current: ForcedCollectionVersions) {
+  return (Object.keys(current) as KitchenCollection[]).filter((collection) => Boolean(current[collection]))
+}
+
+export function acknowledgeForcedCollections(current: ForcedCollectionVersions, saved: ForcedCollectionVersions) {
+  const next = { ...current }
+  ;(Object.keys(saved) as KitchenCollection[]).forEach((collection) => {
+    if (next[collection] === saved[collection]) delete next[collection]
+  })
   return next
 }
 

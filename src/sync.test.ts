@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { acknowledgeForcedCollections, forceKitchenCollections } from './collaborationSync'
 import { createLatestSaveQueue, withRetry } from './sync'
 
 describe('cloud retry', () => {
@@ -52,5 +53,28 @@ describe('cloud save ordering', () => {
     finish?.()
 
     expect(await first).toEqual({ latest: false })
+  })
+
+  it('persists an Undo restore after a delayed deletion save', async () => {
+    const queue = createLatestSaveQueue()
+    const cloudRows = new Set(['legacy-row'])
+    let releaseDeletion: (() => void) | undefined
+    const deletionGate = new Promise<void>((resolve) => { releaseDeletion = resolve })
+    const deletionGeneration = forceKitchenCollections({}, ['inventory'])
+    const deletion = queue.reserve().run(async () => {
+      await deletionGate
+      cloudRows.delete('legacy-row')
+    })
+
+    const restoreGeneration = forceKitchenCollections(deletionGeneration, ['inventory'])
+    const restoration = queue.reserve().run(async () => { cloudRows.add('legacy-row') })
+    releaseDeletion?.()
+
+    const deletionResult = await deletion
+    expect(deletionResult).toEqual({ latest: false })
+    expect(acknowledgeForcedCollections(restoreGeneration, deletionGeneration)).toEqual(restoreGeneration)
+    expect(await restoration).toEqual({ latest: true })
+    expect(acknowledgeForcedCollections(restoreGeneration, restoreGeneration)).toEqual({})
+    expect([...cloudRows]).toEqual(['legacy-row'])
   })
 })

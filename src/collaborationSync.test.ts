@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
+import { acceptKitchenCollections, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
 
 const empty: CollaborativeKitchenSnapshot = {
   inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [],
@@ -39,6 +39,21 @@ describe('household collection synchronization', () => {
     ] }
     const reordered = { ...first, inventory: [...first.inventory].reverse() }
     expect(changedKitchenCollections(kitchenFingerprints(reordered), kitchenFingerprints(first))).toEqual([])
+  })
+
+  it('keeps a newer forced restore pending when an older save finishes', () => {
+    const deletion = forceKitchenCollections({}, ['inventory'])
+    const restoration = forceKitchenCollections(deletion, ['inventory'])
+    expect(acknowledgeForcedCollections(restoration, deletion)).toEqual(restoration)
+    expect(pendingForcedCollections(restoration)).toEqual(['inventory'])
+    expect(acknowledgeForcedCollections(restoration, restoration)).toEqual({})
+  })
+
+  it('can force an unchanged legacy collection to save again', () => {
+    const fingerprint = kitchenFingerprints(empty)
+    const forced = forceKitchenCollections({}, ['grocery'])
+    expect(changedKitchenCollections(fingerprint, fingerprint)).toEqual([])
+    expect(pendingForcedCollections(forced)).toEqual(['grocery'])
   })
 
   it('shows new grocery rows only to another household member after their last visit', () => {

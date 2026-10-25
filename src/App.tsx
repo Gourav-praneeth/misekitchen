@@ -11,12 +11,13 @@ import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rem
 import { applyBarcodeToGroceryPurchase, barcodeProductFromRemembered, bestGroceryBarcodeMatch, groceryBarcodeMatchScore, groceryItemFromBarcodeProduct } from './groceryBarcode'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
-import { acceptKitchenCollections, changedKitchenCollections, kitchenFingerprints, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type KitchenFingerprints } from './collaborationSync'
+import { acceptKitchenCollections, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type ForcedCollectionVersions, type KitchenCollection, type KitchenFingerprints } from './collaborationSync'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
 import { addOrUpdateStaple, groceryFromStaples, moveStaple, moveStapleGroup, orderedStapleGroups, orderedStaples } from './groceryStaples'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
+import { legacyFoodMappings, normalizeLegacyGrocery, normalizeLegacyInventory, resolveGroceryPresentation, resolveInventoryPresentation } from './legacyCompatibility'
 import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems, purchasedGroceryAmount } from './inventoryIntelligence'
 import { dietPreferences, emptyFoodPreferences, foodIntolerances, foodPreferenceSummary } from './foodPreferences'
 import { addWeeks, applyMealPlanTemplate, copyMealPlanDay, groceryForMealPlan, localDateKey, mealPlanEntryId, mealPlanTemplateFromWeek, mealSlots, repeatMealPlanWeek, startOfWeek, weekDates } from './mealPlanner'
@@ -44,7 +45,7 @@ type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
-type UndoNotice = (message: string, undo: () => void, restoredMessage?: string) => void
+type UndoNotice = (message: string, undo: () => void, restoredMessage?: string, collections?: KitchenCollection[]) => void
 type GroceryPurchaseDraft = GroceryItem & { purchase: NonNullable<GroceryItem['purchase']> }
 type GroceryAddSource = 'recipe' | 'recommendation' | 'meal plan' | 'Discover' | 'staples' | 'bulk add' | 'restock'
 type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource }
@@ -93,12 +94,13 @@ function App() {
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('mise-inventory-v1') || '') || seedInventory
-      return stored.map((item: InventoryItem) => withExpirationDate(item))
+      return collapseInventoryPresence(normalizeLegacyInventory(stored).items.map((item) => withExpirationDate(item)))
     } catch { return seedInventory.map((item) => withExpirationDate(item)) }
   })
   const [grocery, setGrocery] = useState<GroceryItem[]>(() => {
-    try { return JSON.parse(localStorage.getItem('mise-grocery-v1') || '') || [] } catch { return [] }
+    try { return normalizeLegacyGrocery(JSON.parse(localStorage.getItem('mise-grocery-v1') || '') || []).items } catch { return [] }
   })
+  const groceryRef = useRef(grocery)
   const [stapleGroups, setStapleGroups] = useState<GroceryStapleGroup[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-staple-groups-v1') || '') || [] } catch { return [] }
   })
@@ -131,6 +133,7 @@ function App() {
     try { return JSON.parse(localStorage.getItem('mise-product-memory-v1') || '') || [] } catch { return [] }
   })
   const [foodMappings, setFoodMappings] = useState<HouseholdFoodMapping[]>([])
+  const [foodMappingsReady, setFoodMappingsReady] = useState(false)
   const [newGroceryIds, setNewGroceryIds] = useState<Set<string>>(new Set())
   const previousView = useRef<View>('home')
   const [addOpen, setAddOpen] = useState(false)
@@ -173,9 +176,13 @@ function App() {
   const remoteRefreshRequest = useRef(0)
   const syncBaseline = useRef<Partial<KitchenFingerprints>>({})
   const forceAllCollectionsSave = useRef(false)
+  const forcedCollectionVersions = useRef<ForcedCollectionVersions>({})
+  const legacyIconBackfillHousehold = useRef<string | null>(null)
   const syncConflict = useRef(false)
   const applyingRemoteSnapshot = useRef(false)
   const skipNextCloudSave = useRef(false)
+
+  useEffect(() => { groceryRef.current = grocery }, [grocery])
 
   const reconcileRemoteKitchen = useCallback(async () => {
     if (!session || !householdId || demoMode || localChangesPending.current) {
@@ -191,15 +198,16 @@ function App() {
         remoteRefreshPending.current = true
         return
       }
-      const nextInventory = collapseInventoryPresence(cloud.inventory.map((item) => withExpirationDate(item)))
+      const nextInventory = collapseInventoryPresence(normalizeLegacyInventory(cloud.inventory).items.map((item) => withExpirationDate(resolveInventoryPresentation(item, mappings))))
+      const nextGrocery = normalizeLegacyGrocery(cloud.grocery).items.map((item) => resolveGroceryPresentation(item, mappings))
       const shared: CollaborativeKitchenSnapshot = {
-        inventory: nextInventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples,
+        inventory: nextInventory, grocery: nextGrocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples,
         recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates,
       }
       applyingRemoteSnapshot.current = true
       syncBaseline.current = kitchenFingerprints(shared)
       setInventory(nextInventory)
-      setGrocery(cloud.grocery)
+      setGrocery(nextGrocery)
       setStapleGroups(cloud.stapleGroups)
       setStaples(cloud.staples)
       setCustomRecipes(cloud.recipes)
@@ -209,6 +217,7 @@ function App() {
       setProductMemory(cloud.productMemory)
       setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
       setFoodMappings(mappings)
+      setFoodMappingsReady(true)
       mealPlanTemplatesDirty.current = false
       const snapshot = { householdId: targetHousehold, ...shared, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
       writeStoredKitchen('cache', session.user.id, snapshot)
@@ -236,6 +245,8 @@ function App() {
         setHouseholdId(null)
         setCloudReady(false)
         setProductMemory([])
+        setFoodMappings([])
+        setFoodMappingsReady(false)
       }
       if (event === 'PASSWORD_RECOVERY') setPasswordRecoveryOpen(true)
       setAuthReady(true)
@@ -271,13 +282,15 @@ function App() {
     let active = true
     async function hydrate() {
       setCloudReady(false)
+      setFoodMappingsReady(false)
+      legacyIconBackfillHousehold.current = null
       try {
         const localKitchen = readStoredKitchen('pending', session!.user.id) || readStoredKitchen('cache', session!.user.id)
         if (!isOnline) {
           if (localKitchen) {
             setHouseholdId(localKitchen.householdId)
-            setInventory(collapseInventoryPresence(localKitchen.inventory.map((item) => withExpirationDate(item))))
-            setGrocery(localKitchen.grocery)
+            setInventory(collapseInventoryPresence(normalizeLegacyInventory(localKitchen.inventory).items.map((item) => withExpirationDate(item))))
+            setGrocery(normalizeLegacyGrocery(localKitchen.grocery).items)
             setStapleGroups(localKitchen.stapleGroups || [])
             setStaples(localKitchen.staples || [])
             setCustomRecipes(localKitchen.recipes || [])
@@ -304,8 +317,8 @@ function App() {
           const pendingTemplates = pending.mealPlanTemplates || []
           const pendingTemplateIds = new Set(pendingTemplates.map((template) => template.id))
           const mergedTemplates = [...pendingTemplates, ...cloud.mealPlanTemplates.filter((template) => !pendingTemplateIds.has(template.id))]
-          setInventory(collapseInventoryPresence(pending.inventory.map((item) => withExpirationDate(item))))
-          setGrocery(pending.grocery)
+          setInventory(collapseInventoryPresence(normalizeLegacyInventory(pending.inventory).items.map((item) => withExpirationDate(item))))
+          setGrocery(normalizeLegacyGrocery(pending.grocery).items)
           setStapleGroups(pending.stapleGroups || [])
           setStaples(pending.staples || [])
           setCustomRecipes(pending.recipes || [])
@@ -330,8 +343,10 @@ function App() {
           await saveKitchenSnapshot(id, { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current, mealPlanTemplates: starterMealPlanTemplates.current })
           await markHouseholdInitialized(id)
         } else {
-          setInventory(collapseInventoryPresence(cloud.inventory))
-          setGrocery(cloud.grocery)
+          const legacyInventory = normalizeLegacyInventory(cloud.inventory)
+          const legacyGrocery = normalizeLegacyGrocery(cloud.grocery)
+          setInventory(collapseInventoryPresence(legacyInventory.items))
+          setGrocery(legacyGrocery.items)
           setStapleGroups(cloud.stapleGroups)
           setStaples(cloud.staples)
           setCustomRecipes(cloud.recipes)
@@ -341,7 +356,9 @@ function App() {
           setProductMemory(cloud.productMemory)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: cloud.inventory, grocery: cloud.grocery, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: legacyInventory.items, grocery: legacyGrocery.items, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          if (legacyInventory.changed) forcedCollectionVersions.current = forceKitchenCollections(forcedCollectionVersions.current, ['inventory'])
+          if (legacyGrocery.changed) forcedCollectionVersions.current = forceKitchenCollections(forcedCollectionVersions.current, ['grocery'])
         }
         // Enable outbound sync on the next task so every hydrated collection has
         // rendered before the snapshot effect can run. Without this boundary, a
@@ -353,6 +370,7 @@ function App() {
           skipNextCloudSave.current = !pending?.householdId || pending.householdId !== id
           setCloudReady(true)
           setSyncState(pending?.householdId === id ? 'syncing' : 'saved')
+          if (pendingForcedCollections(forcedCollectionVersions.current).length) window.setTimeout(() => setRetryToken((value) => value + 1), 0)
         }, 0)
       } catch (error) {
         console.error(error)
@@ -416,19 +434,33 @@ function App() {
       .then(([mappings, lastSeen]) => {
         if (!active) return
         setFoodMappings(mappings)
-        setGrocery((current) => {
-          const next = current.map((item) => {
-          const mapping = mappings.find((candidate) => candidate.normalizedName === normalize(item.name))
-          return mapping ? { ...item, emoji: mapping.emoji } : item
-          })
-          return next.some((item, index) => item !== current[index] && item.emoji !== current[index].emoji) ? next : current
-        })
-        setNewGroceryIds(unseenGroceryItemIds(grocery, session.user.id, lastSeen))
+        setFoodMappingsReady(true)
+        setInventory((current) => current.map((item) => resolveInventoryPresentation(item, mappings)))
+        const decoratedGrocery = groceryRef.current.map((item) => resolveGroceryPresentation(item, mappings))
+        setGrocery(decoratedGrocery)
+        setNewGroceryIds(unseenGroceryItemIds(decoratedGrocery, session.user.id, lastSeen))
         if (!lastSeen) void markGrocerySeen(householdId, session.user.id)
       })
       .catch((error) => console.error('Household collaboration details could not be loaded.', error))
     return () => { active = false }
-  }, [session, householdId, cloudReady, demoMode, grocery])
+  }, [session, householdId, cloudReady, demoMode])
+
+  useEffect(() => {
+    if (!session || !householdId || demoMode || !foodMappingsReady || legacyIconBackfillHousehold.current === householdId) return
+    legacyIconBackfillHousehold.current = householdId
+    const additions = legacyFoodMappings(inventory, foodMappings)
+    if (!additions.length) return
+    let active = true
+    void Promise.allSettled(additions.map((mapping) => saveHouseholdFoodMapping(householdId, mapping))).then((results) => {
+      if (!active) return
+      results.forEach((result) => { if (result.status === 'rejected') console.error('Legacy food icon could not be remembered.', result.reason) })
+      const saved = additions.filter((_, index) => results[index]?.status === 'fulfilled')
+      setFoodMappings((current) => [...current, ...saved.filter((mapping) => !current.some((candidate) => candidate.normalizedName === mapping.normalizedName))])
+      setInventory((current) => current.map((item) => resolveInventoryPresentation(item, saved)))
+      setGrocery((current) => current.map((item) => resolveGroceryPresentation(item, saved)))
+    })
+    return () => { active = false }
+  }, [session, householdId, demoMode, foodMappingsReady, inventory, foodMappings])
 
   useEffect(() => {
     if (!session || !householdId || !cloudReady || !supabase || demoMode) return
@@ -527,7 +559,11 @@ function App() {
       return
     }
     if (syncConflict.current) { setSyncState('conflict'); return }
-    const dirtyCollections = changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current)
+    const forcedVersions = { ...forcedCollectionVersions.current }
+    const dirtyCollections = [...new Set([
+      ...changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current),
+      ...pendingForcedCollections(forcedVersions),
+    ])]
     forceAllCollectionsSave.current = false
     const snapshot = { householdId, ...shared, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     if (!dirtyCollections.length) {
@@ -559,6 +595,7 @@ function App() {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
         syncBaseline.current = acceptKitchenCollections(syncBaseline.current, fingerprints, dirtyCollections)
+        forcedCollectionVersions.current = acknowledgeForcedCollections(forcedCollectionVersions.current, forcedVersions)
         if (dirtyCollections.includes('mealPlanTemplates')) mealPlanTemplatesDirty.current = false
         localChangesPending.current = false
         const revision = Date.now()
@@ -614,25 +651,29 @@ function App() {
 
   function notify(message: string) { setToast({ message }) }
 
-  function offerUndo(message: string, undo: () => void, restoredMessage = 'Item restored') {
+  function offerUndo(message: string, undo: () => void, restoredMessage = 'Item restored', collections: KitchenCollection[] = []) {
     setToast({
       message,
       undo: () => {
         undo()
+        if (collections.length) {
+          forcedCollectionVersions.current = forceKitchenCollections(forcedCollectionVersions.current, collections)
+          setRetryToken((value) => value + 1)
+        }
         setToast({ message: restoredMessage })
       },
     })
   }
 
   function applyFoodMapping(item: InventoryItem) {
-    const mapping = foodMappings.find((candidate) => candidate.normalizedName === normalize(item.name))
-    return mapping ? { ...item, name: mapping.displayName, emoji: mapping.emoji, category: mapping.category, location: mapping.location } : item
+    return resolveInventoryPresentation(item, foodMappings)
   }
 
   function rememberIngredient(item: InventoryItem) {
     if (getFoodIntelligence(item.name)) return
     const mapping: HouseholdFoodMapping = { normalizedName: normalize(item.name), displayName: item.name.trim(), emoji: item.emoji, category: item.category, location: item.location }
     setFoodMappings((current) => [...current.filter((candidate) => candidate.normalizedName !== mapping.normalizedName), mapping])
+    setGrocery((current) => current.map((entry) => resolveGroceryPresentation(entry, [mapping])))
     if (householdId && session && !demoMode) {
       void saveHouseholdFoodMapping(householdId, mapping).catch((error) => console.error('Food icon choice could not be remembered.', error))
       void recordUnknownFoodTerm(item.name).catch((error) => console.error('Unknown food trend could not be recorded.', error))
@@ -760,13 +801,7 @@ function App() {
     setSmartOpen(false)
     const added = validItems.length - merged
     const summary = [added ? `${added} added` : '', merged ? `${merged} merged` : ''].filter(Boolean).join(', ')
-    setToast({
-      message: `${summary} in your kitchen`,
-      undo: () => {
-        setInventory(previous)
-        setToast({ message: 'Smart add undone' })
-      },
-    })
+    offerUndo(`${summary} in your kitchen`, () => setInventory(previous), 'Smart add undone', ['inventory'])
   }
 
   async function sendFeedback(category: string, message: string) {
@@ -824,16 +859,12 @@ function App() {
       void saveCookingHistoryEntry(householdId, historyEntry).catch((error) => console.error('Cooking history could not be synced.', error))
     }
     setCookingDraft(null)
-    setToast({
-      message: `${recipe.name} added to cooking history`,
-      undo: () => {
-        setInventory(previousInventory)
-        setGrocery(previousGrocery)
-        setCookingHistory((current) => current.filter((entry) => entry.id !== historyEntry.id))
-        if (householdId && session && !demoMode) void deleteCookingHistoryEntry(householdId, historyEntry.id)
-        setToast({ message: 'Cooking update undone' })
-      },
-    })
+    offerUndo(`${recipe.name} added to cooking history`, () => {
+      setInventory(previousInventory)
+      setGrocery(previousGrocery)
+      setCookingHistory((current) => current.filter((entry) => entry.id !== historyEntry.id))
+      if (householdId && session && !demoMode) void deleteCookingHistoryEntry(householdId, historyEntry.id)
+    }, 'Cooking update undone', ['inventory', 'grocery'])
   }
 
   function restockIngredient(item: InventoryItem) {
@@ -841,7 +872,10 @@ function App() {
     const previousGrocery = grocery
     setInventory((current) => current.filter((entry) => entry.id !== item.id))
     setGrocery((current) => mergeGroceryItems(current, [{ name: item.name, amount: 1, unit: item.packageUnit || 'item', checked: false }]))
-    setToast({ message: `${item.name} moved to your grocery list`, undo: () => { setInventory(previousInventory); setGrocery(previousGrocery); setToast({ message: 'Restock undone' }) } })
+    offerUndo(`${item.name} moved to your grocery list`, () => {
+      setInventory(previousInventory)
+      setGrocery(previousGrocery)
+    }, 'Restock undone', ['inventory', 'grocery'])
   }
 
   function planRecommendedRecipe(recipe: RecipeMatch, date: string, mealSlot: MealSlot, servings: number) {
@@ -912,13 +946,7 @@ function App() {
     const previous = customRecipes
     setCustomRecipes((current) => current.filter((entry) => entry.id !== recipe.id))
     setSelectedRecipe(null)
-    setToast({
-      message: `${recipe.name} deleted`,
-      undo: () => {
-        setCustomRecipes(previous)
-        setToast({ message: 'Recipe restored' })
-      },
-    })
+    offerUndo(`${recipe.name} deleted`, () => setCustomRecipes(previous), 'Recipe restored', ['recipes'])
   }
 
   if (cloudEnabled && !authReady) return <div className="app-loading"><span className="brand-mark"><Leaf /></span><strong>Opening your kitchen…</strong></div>
@@ -968,7 +996,7 @@ function App() {
 
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} guidance={recipeGuidance} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'recommendation')} />}
-          {view === 'kitchen' && <Kitchen inventory={inventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} onDelete={(item) => { setInventory((current) => current.filter((entry) => entry.id !== item.id)); offerUndo(`${item.name} deleted`, () => setInventory((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item]), `${item.name} restored`) }} />}
+          {view === 'kitchen' && <Kitchen inventory={inventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} onDelete={(item) => { setInventory((current) => current.filter((entry) => entry.id !== item.id)); offerUndo(`${item.name} deleted`, () => setInventory((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item]), `${item.name} restored`, ['inventory']) }} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} guidance={recipeGuidance} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'Discover')} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onOpenKitchen={() => { setKitchenCategory('All'); setView('kitchen') }} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={(items) => reviewGrocery(items, 'meal plan')} notify={notify} offerUndo={offerUndo} />}
           {view === 'grocery' && <Grocery grocery={grocery} newGroceryIds={newGroceryIds} stapleGroups={stapleGroups} staples={staples} inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} onReviewItems={reviewGrocery} onRememberProducts={(items) => setProductMemory((current) => rememberHouseholdProducts(current, items))} notify={notify} offerUndo={offerUndo} />}
@@ -978,7 +1006,7 @@ function App() {
 
       {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(rawItem) => { const item = applyFoodMapping(rawItem); rememberIngredient(item); const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} refreshed in your kitchen` : `${item.name} added to your kitchen`) }} />}
       {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
-      {barcodeOpen && <BarcodeScanner inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} onClose={() => setBarcodeOpen(false)} onAdd={(rawItems) => { const items = rawItems.map(applyFoodMapping); items.forEach(rememberIngredient); const before = inventory; const beforeMemory = productMemory; const result = mergeInventoryItems(inventory, items); setProductMemory((current) => rememberHouseholdProducts(current, items)); setInventory(result.items); setBarcodeOpen(false); setToast({ message: `${barcodeBatchLabel(items.length)} saved to your kitchen`, undo: () => { setInventory(before); setProductMemory(beforeMemory); setToast({ message: 'Barcode scan undone' }) } }) }} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} onClose={() => setBarcodeOpen(false)} onAdd={(rawItems) => { const items = rawItems.map(applyFoodMapping); items.forEach(rememberIngredient); const before = inventory; const beforeMemory = productMemory; const result = mergeInventoryItems(inventory, items); setProductMemory((current) => rememberHouseholdProducts(current, items)); setInventory(result.items); setBarcodeOpen(false); offerUndo(`${barcodeBatchLabel(items.length)} saved to your kitchen`, () => { setInventory(before); setProductMemory(beforeMemory) }, 'Barcode scan undone', ['inventory']) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
       {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { rememberIngredient(item); setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
@@ -1190,7 +1218,7 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
     offerUndo('Day cleared from your meal plan', () => setEntries((current) => [
       ...current.filter((entry) => !removed.some((candidate) => candidate.id === entry.id)),
       ...removed,
-    ]), 'Day restored')
+    ]), 'Day restored', ['mealPlan'])
   }
 
   function removeMeal(entry: MealPlanEntry, recipeName: string) {
@@ -1201,7 +1229,7 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
       const next = [...current]
       next.splice(Math.max(0, Math.min(index, next.length)), 0, entry)
       return next
-    }), `${recipeName} restored`)
+    }), `${recipeName} restored`, ['mealPlan'])
   }
 
   function copyDay(targetDate: string) {
@@ -1286,7 +1314,7 @@ function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, s
     try {
       await onDeleteTemplate(template.id)
       setTemplates((current) => current.filter((candidate) => candidate.id !== template.id))
-      offerUndo(`${template.name} deleted`, () => setTemplates((current) => current.some((candidate) => candidate.id === template.id) ? current : [template, ...current]), `${template.name} restored`)
+      offerUndo(`${template.name} deleted`, () => setTemplates((current) => current.some((candidate) => candidate.id === template.id) ? current : [template, ...current]), `${template.name} restored`, ['mealPlanTemplates'])
     } catch (error) {
       console.error(error)
       notify(`${template.name} could not be deleted`)
@@ -1442,7 +1470,7 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
       const next = [...items]
       next.splice(Math.max(0, Math.min(index, next.length)), 0, item)
       return next
-    }), `${item.name} restored`)
+    }), `${item.name} restored`, ['grocery'])
   }
   return <section className={`inner-page grocery-page${storeMode ? ' store-mode' : ''}`}>
     <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.1</h1><p>{storeMode ? 'A focused shopping view with only what is left to collect.' : 'Organized by aisle, ready for real package quantities, and accurate when purchases move into your kitchen.'}</p></div><div className="title-actions"><button className={storeMode ? 'primary-button' : 'secondary-button'} onClick={() => { setStoreMode((current) => !current); setFilter('needed') }}><ShoppingBasket /> {storeMode ? 'Exit store mode' : 'Store mode'}</button>{!storeMode && <button className="secondary-button" onClick={() => setAisleEditorOpen(true)}><ArrowUp /> Aisle order</button>}{!storeMode && neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={() => setPurchaseReviewOpen(true)}><PackageOpen size={18} /> Review {checkedCount} purchase{checkedCount === 1 ? '' : 's'}</button>}</div></div>
@@ -1674,7 +1702,7 @@ function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery
       })
       setStaples((current) => [...current.filter((entry) => !removedStaples.some((removed) => removed.id === entry.id)), ...removedStaples])
       setActiveGroupId(group.id)
-    }, `${group.name} restored`)
+    }, `${group.name} restored`, ['staples'])
   }
   function removeStaple(staple: GroceryStaple, index: number) {
     setStaples((current) => current.filter((item) => item.id !== staple.id))
@@ -1685,7 +1713,7 @@ function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery
       const insertionIndex = groupPositions[index] ?? (groupPositions.length ? groupPositions[groupPositions.length - 1] + 1 : next.length)
       next.splice(insertionIndex, 0, staple)
       return next
-    }), `${staple.name} restored`)
+    }), `${staple.name} restored`, ['staples'])
   }
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal staples-manager" onMouseDown={(event) => event.stopPropagation()}>
