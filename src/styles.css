@@ -518,7 +518,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .staples-manager-empty { display: grid; align-content: center; justify-items: center; min-height: 230px; text-align: center; }
 .staples-manager-empty svg { width: 28px; color: #839688; }.staples-manager-empty h3 { margin: 10px 0 4px; font-size: 19px; }.staples-manager-empty p { margin: 0; color: #849087; font-size: 9px; }
 @media (max-width: 700px) {
-  .grocery-row { grid-template-columns: 26px 38px minmax(0, 1fr) 99px; }
+  .grocery-row { grid-template-columns: 44px 38px minmax(0, 1fr) 44px; }
   .staples-manager { max-height: calc(100vh - 20px); padding: 20px 14px; }
   .staples-manager-layout { grid-template-columns: 1fr; overflow-y: auto; }
   .staples-manager-layout > nav { display: flex; gap: 5px; padding: 7px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #e1e3dc; }
