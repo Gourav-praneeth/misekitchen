@@ -29,6 +29,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Resolve icons in household mapping, built-in catalog, stored legacy icon, and generic fallback order; backfill confirmed legacy custom icons into household mappings.
 - [x] Polish My Kitchen interactions with compact freshness labels, category counts, accessible search, non-repeating metadata, a focused Restock action, and an overflow menu for edit/delete.
 - [x] Make grocery entry and review consistent: distinct single/paste actions, cancel-safe pasted drafts, exact merge previews, row-level validation, and one clear confirmation summary on desktop and mobile.
+- [x] Reorganize Grocery List around the daily flow: add, shop, check off, and review purchases first; keep aisle order, staples management, and bulk completion in a compact utility menu.
 - [ ] Validate the complete signed-in two-member flow end to end, including delayed Undo, offline recovery, and realtime changes from the other member.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
@@ -138,6 +139,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 ## Decision log
 
+- **October 25, 2026:** Grocery List navigation now prioritizes the actions used on every trip. Add item and Start shopping remain visible, checked items surface a dedicated Review purchases next step, and lower-frequency list setup lives under More. Mobile shows one action row before the shopping status and list.
 - **October 25, 2026:** Grocery entry now keeps single-item addition fast while pasted and generated lists share one stricter review contract. Cancel preserves unsaved pasted text, every visible row must be valid, and merge messaging is computed with the same unit-aware logic used by the final save.
 - **October 25, 2026:** Shared-kitchen saves moved from whole-collection replacement to baseline-aware row deltas so concurrent additions, offline changes, and remote edits can reconcile without deleting unrelated household data.
 - **October 25, 2026:** Undo was hardened for both legacy and newly created records using per-collection forced-save generations. Household mappings remain the highest icon priority, while an explicit override flow for recognized catalog foods is queued as a UX candidate rather than changing the catalog automatically.

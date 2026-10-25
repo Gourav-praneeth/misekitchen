@@ -327,7 +327,34 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 @media (max-width: 700px) { .planner-page .week-grid { grid-template-columns: repeat(7, minmax(280px, 86vw)); }.planner-page .day-card { min-height: 430px; }.planner-page .title-actions { display: grid; grid-template-columns: 1fr; }.copy-day-options { grid-template-columns: 1fr; }.meal-template-create, .meal-template-list article { grid-template-columns: 1fr; }.meal-template-create button { width: 100%; }.template-actions button:first-child { flex: 1; } }
 
 /* Grocery List 2.1 */
+.grocery-page .page-title { align-items: end; }
+.grocery-page .page-title > div:first-child { max-width: 560px; }
 .grocery-page .title-actions { flex-wrap: wrap; justify-content: flex-end; }
+.grocery-primary-actions { position: relative; }
+.grocery-primary-actions > button { min-height: 42px; }
+.grocery-utility-wrap { position: relative; }
+.grocery-more-button { width: 44px; min-width: 44px; min-height: 42px; padding-inline: 0; }
+.grocery-more-button svg { width: 17px; }
+.grocery-more-button span { display: none; }
+.grocery-utility-menu { position: absolute; z-index: 7; top: calc(100% + 7px); right: 0; display: grid; min-width: 210px; padding: 6px; border: 1px solid #d7dcd4; border-radius: 10px; background: var(--paper); box-shadow: 0 10px 26px rgba(37,53,44,.14); }
+.grocery-utility-menu button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font-size: 11px; font-weight: 700; text-align: left; cursor: pointer; }
+.grocery-utility-menu button:hover, .grocery-utility-menu button:focus-visible { background: #eef1ea; outline: none; }
+.grocery-utility-menu svg { width: 14px; }
+.mobile-paste-action { display: none !important; }
+.grocery-add-panel { margin-bottom: 18px; padding: 0; overflow: hidden; }
+.grocery-add-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 17px 18px 0; }
+.grocery-add-panel h2 { margin: 0; font: 600 18px 'Fraunces', serif; }
+.grocery-add-panel header p { margin: 4px 0 0; color: #65736a; font-size: 11px; line-height: 1.45; }
+.grocery-add-panel header > button { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid #d8ddd5; border-radius: 9px; background: #faf9f5; color: var(--ink); cursor: pointer; }
+.grocery-add-panel header > button svg { width: 15px; }
+.grocery-next-step { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; padding: 14px 16px; border-color: #b8ccb9; background: #eef3eb; }
+.grocery-next-step > div { display: flex; align-items: center; min-width: 0; gap: 11px; }
+.grocery-next-step > div > svg { flex: 0 0 auto; width: 22px; color: var(--green); }
+.grocery-next-step p { min-width: 0; margin: 0; }
+.grocery-next-step strong, .grocery-next-step small { display: block; }
+.grocery-next-step strong { font-size: 12px; }
+.grocery-next-step small { margin-top: 3px; color: #627168; font-size: 11px; line-height: 1.4; }
+.grocery-next-step > button { flex: 0 0 auto; min-height: 40px; }
 .grocery-progress { display: grid; gap: 11px; margin-bottom: 18px; padding: 17px 20px; }
 .grocery-progress > div:first-child { display: flex; align-items: end; justify-content: space-between; gap: 15px; }
 .grocery-progress strong { font: 600 22px 'Fraunces', serif; }
@@ -336,15 +363,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .grocery-progress [role="progressbar"] { height: 7px; overflow: hidden; border-radius: 10px; background: #e5e7df; }
 .grocery-progress [role="progressbar"] span { display: block; height: 100%; border-radius: inherit; background: #5f8a6a; transition: width .25s ease; }
 .grocery-list { padding: 0; overflow: hidden; }
-.grocery-entry-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 18px; border-bottom: 1px solid #e2e3dc; background: #f4f4ed; }
-.grocery-entry-head strong, .grocery-entry-head small { display: block; }
-.grocery-entry-head strong { color: #53685a; font-size: 11px; }
-.grocery-entry-head small { margin-top: 3px; color: #76837a; font-size: 8px; }
-.grocery-entry-actions { display: flex; align-items: center; gap: 7px; }
-.grocery-entry-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 38px; padding: 8px 11px; border: 1px solid #afc3b2; border-radius: 9px; background: #fffefa; color: var(--green); font-size: 9px; font-weight: 800; cursor: pointer; }
-.grocery-entry-actions button.active { border-color: #8eab94; background: #e3ece1; }
-.grocery-entry-actions button svg { width: 14px; }
-.grocery-add { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; padding: 12px 18px 18px; border-bottom: 1px solid #e2e3dc; background: #f4f4ed; }
+.grocery-add { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; padding: 14px 18px 18px; }
 .grocery-add label { display: grid; gap: 7px; color: #627168; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
 .grocery-add textarea { width: 100%; min-height: 70px; padding: 11px 13px; resize: vertical; border: 1px solid #d9ddd5; border-radius: 10px; outline: 0; background: #fffefa; color: var(--ink); font: 500 12px/1.45 'DM Sans', sans-serif; text-transform: none; }
 .grocery-add textarea:focus { border-color: #7c9b85; box-shadow: 0 0 0 3px #e5eee5; }
@@ -376,13 +395,20 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .purchase-review { width: min(700px, 100%); max-height: 92vh; overflow: auto; }.purchase-scan-all { display: grid; grid-template-columns: 25px auto 1fr 16px; align-items: center; gap: 7px; width: 100%; margin: -7px 0 14px; padding: 11px 12px; border: 1px solid #a9c0ad; border-radius: 11px; background: #e8f0e5; color: var(--green); font-size: 10px; font-weight: 800; text-align: left; cursor: pointer; }.purchase-scan-all > span { color: #758278; font-size: 8px; font-weight: 500; }.purchase-scan-all svg { width: 15px; }.purchase-review-list { display: grid; gap: 9px; margin-bottom: 16px; }.purchase-review article { padding: 12px; border: 1px solid #dde1d8; border-radius: 12px; background: #faf9f5; }.purchase-item-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }.purchase-item-heading > span { display: grid; place-items: center; width: 38px; height: 38px; overflow: hidden; border-radius: 10px; background: #eeece3; font-size: 20px; }.purchase-item-heading > span img { width: 100%; height: 100%; object-fit: contain; background: white; }.purchase-item-heading p { flex: 1; margin: 0; }.purchase-item-heading strong, .purchase-item-heading small { display: block; }.purchase-item-heading strong { font-size: 11px; }.purchase-item-heading small { margin-top: 2px; color: #7e8981; font-size: 8px; }.purchase-item-scan { display: flex; align-items: center; gap: 4px; padding: 7px 9px; border: 1px solid #b7c8b8; border-radius: 8px; background: #edf3ea; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }.purchase-item-scan svg { width: 12px; }.purchase-fields { display: grid; grid-template-columns: 75px 90px minmax(110px, 1fr) 100px 125px; gap: 8px; }.purchase-fields label { display: grid; gap: 4px; margin: 0; color: #6f7d74; font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }.purchase-fields input, .purchase-fields select { min-width: 0; padding: 8px 9px; font-size: 10px; }.purchase-barcode { display: flex; align-items: center; gap: 5px; margin-top: 8px; color: #4e7558; font-size: 8px; }.purchase-barcode svg { width: 12px; }.purchase-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding-top: 8px; border-top: 1px solid #e3e5de; }.purchase-total span { color: #7a867e; font-size: 8px; }.purchase-total strong { color: var(--green); font-size: 10px; }
 .purchase-barcode-backdrop { z-index: 40; }.purchase-barcode-capture { width: min(560px, 100%); }.purchase-product-review { display: grid; gap: 10px; }.purchase-product-review label { margin: 0; }.purchase-match-summary { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 10px; background: #e8f0e5; color: #56705e; }.purchase-match-summary svg { flex: 0 0 auto; width: 15px; }.purchase-match-summary strong { display: block; margin-bottom: 2px; color: var(--green); font-size: 10px; }.purchase-match-summary span { font-size: 8px; line-height: 1.45; }.purchase-scan-actions { display: grid; gap: 7px; margin-top: 3px; }.purchase-scan-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; margin: 0; }.purchase-scan-actions svg { width: 14px; }
 @media (max-width: 700px) {
-  .grocery-page .title-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .grocery-page .title-actions button { width: 100%; }
-  .grocery-entry-head { align-items: stretch; flex-direction: column; }
-  .grocery-entry-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .grocery-entry-actions button { width: 100%; min-height: 44px; }
+  .grocery-page .page-title { gap: 16px; }
+  .grocery-page .title-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 46px; gap: 7px; }
+  .grocery-page .title-actions > button, .grocery-page .title-actions .grocery-utility-wrap, .grocery-page .title-actions .grocery-more-button { width: 100%; }
+  .grocery-page .title-actions .grocery-more-button { min-width: 0; height: 44px; padding: 0; }
+  .grocery-paste-action { display: none !important; }
+  .grocery-utility-menu { position: fixed; top: auto; right: 16px; bottom: 92px; left: 16px; min-width: 0; padding: 7px; }
+  .grocery-utility-menu button { min-height: 46px; font-size: 12px; }
+  .mobile-paste-action { display: flex !important; }
+  .store-mode .grocery-primary-actions { grid-template-columns: 1fr; }
+  .grocery-add-panel > header { padding: 15px 15px 0; }
   .grocery-add { grid-template-columns: 1fr; }
   .grocery-add > button { width: 100%; }
+  .grocery-next-step { align-items: stretch; flex-direction: column; gap: 12px; }
+  .grocery-next-step > button { width: 100%; }
   .grocery-progress > div:first-child { align-items: start; flex-direction: column; gap: 4px; }
   .grocery-add { grid-template-columns: 1fr; }
   .grocery-add textarea { min-height: 86px; font-size: 16px; }
