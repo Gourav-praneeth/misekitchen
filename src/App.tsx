@@ -610,10 +610,14 @@ function App() {
       ...changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current),
       ...forcedCollections,
     ])]
-    forceAllCollectionsSave.current = false
     const snapshot = { householdId, ...shared, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     if (!dirtyCollections.length) {
       writeStoredKitchen('cache', session.user.id, snapshot)
+      if (localChangesPending.current) {
+        localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
+        localChangesPending.current = false
+        setSyncState('saved')
+      }
       return
     }
     const reservation = saveQueue.current.reserve()
@@ -643,6 +647,7 @@ function App() {
         writeStoredKitchen('cache', session.user.id, snapshot)
         syncBaseline.current = acceptKitchenCollections(syncBaseline.current, fingerprints, dirtyCollections)
         syncBaselineSnapshot.current = acceptKitchenSnapshot(syncBaselineSnapshot.current, shared, dirtyCollections)
+        forceAllCollectionsSave.current = false
         forcedCollectionVersions.current = acknowledgeForcedCollections(forcedCollectionVersions.current, forcedVersions)
         if (dirtyCollections.includes('mealPlanTemplates')) mealPlanTemplatesDirty.current = false
         localChangesPending.current = false
