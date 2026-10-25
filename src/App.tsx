@@ -44,6 +44,7 @@ type KitchenCategory = 'All' | Category
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
+type UndoNotice = (message: string, undo: () => void, restoredMessage?: string) => void
 type GroceryPurchaseDraft = GroceryItem & { purchase: NonNullable<GroceryItem['purchase']> }
 type GroceryAddSource = 'recipe' | 'recommendation' | 'meal plan' | 'Discover' | 'staples' | 'bulk add' | 'restock'
 type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource }
@@ -612,6 +613,16 @@ function App() {
 
   function notify(message: string) { setToast({ message }) }
 
+  function offerUndo(message: string, undo: () => void, restoredMessage = 'Item restored') {
+    setToast({
+      message,
+      undo: () => {
+        undo()
+        setToast({ message: restoredMessage })
+      },
+    })
+  }
+
   function applyFoodMapping(item: InventoryItem) {
     const mapping = foodMappings.find((candidate) => candidate.normalizedName === normalize(item.name))
     return mapping ? { ...item, name: mapping.displayName, emoji: mapping.emoji, category: mapping.category, location: mapping.location } : item
@@ -865,7 +876,10 @@ function App() {
     setCookingHistory((current) => current.filter((candidate) => candidate.id !== entry.id))
     try {
       if (householdId && session && !demoMode) await deleteCookingHistoryEntry(householdId, entry.id)
-      notify('Cooking history entry removed')
+      offerUndo('Cooking history entry removed', () => {
+        setCookingHistory((current) => current.some((candidate) => candidate.id === entry.id) ? current : [entry, ...current])
+        if (householdId && session && !demoMode) void saveCookingHistoryEntry(householdId, entry)
+      }, 'Cooking history entry restored')
     } catch (error) {
       setCookingHistory(previous)
       notify(errorMessage(error, 'The cooking history entry could not be removed.'))
@@ -953,10 +967,10 @@ function App() {
 
         <div className="page">
           {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} guidance={recipeGuidance} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'recommendation')} />}
-          {view === 'kitchen' && <Kitchen inventory={inventory} setInventory={setInventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} />}
+          {view === 'kitchen' && <Kitchen inventory={inventory} category={kitchenCategory} setCategory={setKitchenCategory} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} onDelete={(item) => { setInventory((current) => current.filter((entry) => entry.id !== item.id)); offerUndo(`${item.name} deleted`, () => setInventory((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item]), `${item.name} restored`) }} />}
           {view === 'recipes' && <Recipes recipes={recipeMatches} guidance={recipeGuidance} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'Discover')} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onOpenKitchen={() => { setKitchenCategory('All'); setView('kitchen') }} />}
-          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={(items) => reviewGrocery(items, 'meal plan')} notify={notify} />}
-          {view === 'grocery' && <Grocery grocery={grocery} newGroceryIds={newGroceryIds} stapleGroups={stapleGroups} staples={staples} inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} onReviewItems={reviewGrocery} onRememberProducts={(items) => setProductMemory((current) => rememberHouseholdProducts(current, items))} notify={notify} />}
+          {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={(items) => reviewGrocery(items, 'meal plan')} notify={notify} offerUndo={offerUndo} />}
+          {view === 'grocery' && <Grocery grocery={grocery} newGroceryIds={newGroceryIds} stapleGroups={stapleGroups} staples={staples} inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} onReviewItems={reviewGrocery} onRememberProducts={(items) => setProductMemory((current) => rememberHouseholdProducts(current, items))} notify={notify} offerUndo={offerUndo} />}
           {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
@@ -1074,13 +1088,13 @@ function RecommendationPlanner({ recipe, onClose, onPlan }: { recipe: RecipeMatc
   return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal recommendation-planner" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Plan from a recommendation</span><h2>Add {recipe.name}</h2><p>Choose when this meal fits your week.</p></div><button type="button" onClick={onClose} aria-label="Close meal planner"><X /></button></div><div className="recommendation-plan-recipe"><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}</small></p></div><div className="form-row"><label>Date<input type="date" min={today} value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Meal<select value={mealSlot} onChange={(event) => setMealSlot(event.target.value as MealSlot)}>{mealSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label></div><label>Servings<NumberField min="1" max="24" value={servings} onValueChange={setServings} /></label><button className="submit-button" type="submit"><CalendarDays /> Add to meal plan</button></form></div>
 }
 
-function Kitchen({ inventory, setInventory, category, setCategory, onAdd, onSmartAdd, onEdit, onRestock }: { inventory: InventoryItem[]; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void }) {
+function Kitchen({ inventory, category, setCategory, onAdd, onSmartAdd, onEdit, onRestock, onDelete }: { inventory: InventoryItem[]; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void; onDelete: (item: InventoryItem) => void }) {
   const [query, setQuery] = useState('')
   const filtered = inventory.filter((item) => (category === 'All' || item.category === category) && normalize(item.name).includes(normalize(query)))
   return <section className="inner-page kitchen-page">
     <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>Keep a light touch on what you have, where it lives, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
     <div className="toolbar"><label><Search size={17} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs">{(['All', ...categories] as const).map((option) => <button className={category === option ? 'active' : ''} onClick={() => setCategory(option)} key={option}>{option}</button>)}</div></div>
-    <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Availability</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}<span className="mobile-item-location"> · {item.location}</span></small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => setInventory((all) => all.filter((entry) => entry.id !== item.id))} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
+    <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Availability</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}<span className="mobile-item-location"> · {item.location}</span></small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => onDelete(item)} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
     {!filtered.length && <Empty title="Nothing found" copy="Try another search or add a new ingredient." />}
   </section>
 }
@@ -1137,10 +1151,10 @@ function CookingHistory({ entries, recipes, onOpenRecipe, onRemove }: { entries:
   </section>
 }
 
-function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTemplates, onDeleteTemplate, onAddToGrocery, notify }: {
+function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTemplates, onDeleteTemplate, onAddToGrocery, notify, offerUndo }: {
   recipes: RecipeMatch[]; inventory: InventoryItem[]; entries: MealPlanEntry[]; templates: MealPlanTemplate[];
   setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>; onDeleteTemplate: (templateId: string) => Promise<void>;
-  onAddToGrocery: (items: GroceryItem[]) => void; notify: (message: string) => void
+  onAddToGrocery: (items: GroceryItem[]) => void; notify: (message: string) => void; offerUndo: UndoNotice
 }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek())
   const [picking, setPicking] = useState<{ date: string; mealSlot: MealSlot } | null>(null)
@@ -1170,7 +1184,23 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
 
   function clearDay(date: string) {
     if (!window.confirm('Clear every planned meal from this day?')) return
+    const removed = entries.filter((entry) => entry.date === date)
     setEntries((current) => current.filter((entry) => entry.date !== date))
+    offerUndo('Day cleared from your meal plan', () => setEntries((current) => [
+      ...current.filter((entry) => !removed.some((candidate) => candidate.id === entry.id)),
+      ...removed,
+    ]), 'Day restored')
+  }
+
+  function removeMeal(entry: MealPlanEntry, recipeName: string) {
+    const index = entries.findIndex((candidate) => candidate.id === entry.id)
+    setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))
+    offerUndo(`${recipeName} removed from the meal plan`, () => setEntries((current) => {
+      if (current.some((candidate) => candidate.id === entry.id)) return current
+      const next = [...current]
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, entry)
+      return next
+    }), `${recipeName} restored`)
   }
 
   function copyDay(targetDate: string) {
@@ -1197,7 +1227,7 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
           const recipe = entry ? recipes.find((candidate) => candidate.id === entry.recipeId) : undefined
           return entry && recipe ? <div className="planned-slot" key={slot.value}>
             <button className="planned-slot-main" onClick={() => setPicking({ date: dateKey, mealSlot: slot.value })}><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><small>{slot.label}</small><strong>{recipe.name}</strong><em>{recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}{recipe.urgent ? ` · uses ${recipe.urgent} soon` : ''}</em></p></button>
-            <div className="slot-controls"><span>Servings</span><button onClick={() => changeServings(entry, -1)} aria-label={`Decrease servings for ${recipe.name}`}><Minus /></button><strong>{entry.servings}</strong><button onClick={() => changeServings(entry, 1)} aria-label={`Increase servings for ${recipe.name}`}><Plus /></button><button className="delete" onClick={() => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))} aria-label={`Remove ${recipe.name} from ${slot.label}`}><Trash2 /></button></div>
+            <div className="slot-controls"><span>Servings</span><button onClick={() => changeServings(entry, -1)} aria-label={`Decrease servings for ${recipe.name}`}><Minus /></button><strong>{entry.servings}</strong><button onClick={() => changeServings(entry, 1)} aria-label={`Increase servings for ${recipe.name}`}><Plus /></button><button className="delete" onClick={() => removeMeal(entry, recipe.name)} aria-label={`Remove ${recipe.name} from ${slot.label}`}><Trash2 /></button></div>
           </div> : <button className="empty-slot" key={slot.value} onClick={() => setPicking({ date: dateKey, mealSlot: slot.value })}><span>{slot.emoji}</span><p><strong>{slot.label}</strong><small>Add a recipe</small></p><CirclePlus /></button>
         })}</div>
       </article>
@@ -1205,7 +1235,7 @@ function MealPlanner({ recipes, inventory, entries, templates, setEntries, setTe
     <div className="planner-summary panel"><div><CalendarDays /><p><strong>{weekEntries.length} meal{weekEntries.length === 1 ? '' : 's'} planned across {plannedDays} day{plannedDays === 1 ? '' : 's'}</strong><small>{groceries.length ? `${groceries.length} grocery item${groceries.length === 1 ? '' : 's'} complete the week` : weekEntries.length ? 'Everything planned is already in your kitchen' : 'Start with a meal that uses food expiring soon'}</small></p></div>{groceries.length > 0 && <button className="secondary-button" onClick={() => onAddToGrocery(groceries)}>Build grocery list <ArrowRight /></button>}</div>
     {picking && <MealPicker date={picking.date} mealSlot={picking.mealSlot} recipes={recipes} onClose={() => setPicking(null)} onChoose={(recipe) => chooseRecipe(picking.date, picking.mealSlot, recipe)} />}
     {copyingDate && <CopyDayPicker sourceDate={copyingDate} dates={dates} onClose={() => setCopyingDate(null)} onCopy={copyDay} />}
-    {templatesOpen && <MealPlanTemplateManager templates={templates} weekEntries={weekEntries} weekStart={weekStart} recipes={recipes} setEntries={setEntries} setTemplates={setTemplates} onDeleteTemplate={onDeleteTemplate} onClose={() => setTemplatesOpen(false)} notify={notify} />}
+    {templatesOpen && <MealPlanTemplateManager templates={templates} weekEntries={weekEntries} weekStart={weekStart} recipes={recipes} setEntries={setEntries} setTemplates={setTemplates} onDeleteTemplate={onDeleteTemplate} onClose={() => setTemplatesOpen(false)} notify={notify} offerUndo={offerUndo} />}
   </section>
 }
 
@@ -1222,10 +1252,10 @@ function CopyDayPicker({ sourceDate, dates, onClose, onCopy }: { sourceDate: str
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal copy-day-picker" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Copy {sourceLabel}</span><h2>Choose a day</h2></div><button onClick={onClose} aria-label="Close copy day picker"><X /></button></div><p className="modal-intro">Every meal on the destination day will be replaced with this day’s plan.</p><div className="copy-day-options">{dates.filter((date) => localDateKey(date) !== sourceDate).map((date) => { const key = localDateKey(date); return <button key={key} onClick={() => onCopy(key)}><span>{date.toLocaleDateString(undefined, { weekday: 'short' })}</span><strong>{date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</strong><ArrowRight /></button> })}</div></section></div>
 }
 
-function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, setEntries, setTemplates, onDeleteTemplate, onClose, notify }: {
+function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, setEntries, setTemplates, onDeleteTemplate, onClose, notify, offerUndo }: {
   templates: MealPlanTemplate[]; weekEntries: MealPlanEntry[]; weekStart: Date; recipes: RecipeMatch[];
   setEntries: React.Dispatch<React.SetStateAction<MealPlanEntry[]>>; setTemplates: React.Dispatch<React.SetStateAction<MealPlanTemplate[]>>;
-  onDeleteTemplate: (templateId: string) => Promise<void>; onClose: () => void; notify: (message: string) => void
+  onDeleteTemplate: (templateId: string) => Promise<void>; onClose: () => void; notify: (message: string) => void; offerUndo: UndoNotice
 }) {
   const [name, setName] = useState('')
   const recipeIds = new Set(recipes.map((recipe) => recipe.id))
@@ -1255,7 +1285,7 @@ function MealPlanTemplateManager({ templates, weekEntries, weekStart, recipes, s
     try {
       await onDeleteTemplate(template.id)
       setTemplates((current) => current.filter((candidate) => candidate.id !== template.id))
-      notify(`${template.name} deleted`)
+      offerUndo(`${template.name} deleted`, () => setTemplates((current) => current.some((candidate) => candidate.id === template.id) ? current : [template, ...current]), `${template.name} restored`)
     } catch (error) {
       console.error(error)
       notify(`${template.name} could not be deleted`)
@@ -1341,12 +1371,12 @@ function ExternalRecipeSheet({ preview, details, loading, isSaved, onClose, onSa
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="external-recipe-sheet" onMouseDown={(event) => event.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close discovered recipe"><X /></button><div className="external-recipe-image">{preview.image ? <img src={preview.image} alt="" /> : <span>🍽️</span>}<em>Discovered for your kitchen</em></div><div className="external-recipe-body"><span className="eyebrow">Spoonacular recipe</span><h2>{preview.title}</h2>{loading && <div className="discover-loading compact"><RefreshCw className="spin" /> Loading recipe details…</div>}{details && <><div className="sheet-stats"><span><Clock3 /> {details.readyInMinutes || '—'} min</span><span><ChefHat /> {details.servings} servings</span></div><h3>Ingredients</h3><div className="external-ingredients">{details.ingredients.map((item, index) => <div key={`${item.name}-${index}`}><span>{preview.missedIngredients.some((missing) => normalize(missing.name) === normalize(item.name)) ? <Plus /> : <Check />}</span><p><strong>{item.name}</strong><small>{item.original || `${item.amount} ${item.unit}`}</small></p></div>)}</div>{details.instructions.length > 0 && <div className="recipe-steps"><h3>Method</h3><ol>{details.instructions.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<div className="external-actions"><button className="save-recipe-button" onClick={onSave} disabled={isSaved}>{isSaved ? <BookmarkCheck /> : <Bookmark />} {isSaved ? 'Saved to your recipes' : 'Save recipe'}</button>{preview.missedIngredientCount > 0 && <button className="submit-button" onClick={onAddMissing}>Add {preview.missedIngredientCount} missing item{preview.missedIngredientCount === 1 ? '' : 's'} <ShoppingBasket /></button>}{details.sourceUrl && <a className="secondary-button" href={details.sourceUrl} target="_blank" rel="noreferrer">View full original recipe <ExternalLink /></a>}</div><p className="spoonacular-credit">Powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p></>}</div></section></div>
 }
 
-function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rememberedProducts, householdId, accessToken, isOnline, setGrocery, setStapleGroups, setStaples, setInventory, onReviewItems, onRememberProducts, notify }: {
+function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rememberedProducts, householdId, accessToken, isOnline, setGrocery, setStapleGroups, setStaples, setInventory, onReviewItems, onRememberProducts, notify, offerUndo }: {
   grocery: GroceryItem[]; newGroceryIds: Set<string>; stapleGroups: GroceryStapleGroup[]; staples: GroceryStaple[]; inventory: InventoryItem[]; rememberedProducts: HouseholdProduct[];
   householdId: string | null; accessToken: string; isOnline: boolean;
   setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setStapleGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
   setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
-  onReviewItems: (items: GroceryItem[], source: GroceryAddSource) => void; onRememberProducts: (items: InventoryItem[]) => void; notify: (message: string) => void
+  onReviewItems: (items: GroceryItem[], source: GroceryAddSource) => void; onRememberProducts: (items: InventoryItem[]) => void; notify: (message: string) => void; offerUndo: UndoNotice
 }) {
   const [draft, setDraft] = useState('')
   const [filter, setFilter] = useState<'all' | 'needed' | 'checked'>('all')
@@ -1404,6 +1434,15 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
     setStaples((current) => addOrUpdateStaple(current, candidate))
     notify(`${item.name} saved to ${group.name}`)
   }
+  function removeGroceryItem(item: GroceryItem, index: number) {
+    setGrocery((items) => items.filter((_, itemIndex) => itemIndex !== index))
+    offerUndo(`${item.name} removed from your grocery list`, () => setGrocery((items) => {
+      if (item.id && items.some((candidate) => candidate.id === item.id)) return items
+      const next = [...items]
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, item)
+      return next
+    }), `${item.name} restored`)
+  }
   return <section className={`inner-page grocery-page${storeMode ? ' store-mode' : ''}`}>
     <div className="page-title"><div><span className="eyebrow">Shop with a plan</span><h1>Grocery List 2.1</h1><p>{storeMode ? 'A focused shopping view with only what is left to collect.' : 'Organized by aisle, ready for real package quantities, and accurate when purchases move into your kitchen.'}</p></div><div className="title-actions"><button className={storeMode ? 'primary-button' : 'secondary-button'} onClick={() => { setStoreMode((current) => !current); setFilter('needed') }}><ShoppingBasket /> {storeMode ? 'Exit store mode' : 'Store mode'}</button>{!storeMode && <button className="secondary-button" onClick={() => setAisleEditorOpen(true)}><ArrowUp /> Aisle order</button>}{!storeMode && neededCount > 0 && <button className="secondary-button" onClick={() => setGrocery((items) => items.map((item) => ({ ...item, checked: true })))}><Check /> Mark all purchased</button>}{checkedCount > 0 && <button className="primary-button" onClick={() => setPurchaseReviewOpen(true)}><PackageOpen size={18} /> Review {checkedCount} purchase{checkedCount === 1 ? '' : 's'}</button>}</div></div>
     {newGroceryIds.size > 0 && <div className="new-grocery-banner"><Sparkles /><p><strong>{newGroceryIds.size} new item{newGroceryIds.size === 1 ? '' : 's'} from your household</strong><small>{grocery.filter((item) => item.id && newGroceryIds.has(item.id)).map((item) => item.name).join(' · ')}</small></p><span>New</span></div>}
@@ -1414,7 +1453,7 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
       <div className="grocery-add"><label>Add several at once<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'2 bags spinach\n1 gallon milk\n6 apples'} /></label><button onClick={addManual} disabled={!draft.trim()}><Plus /> Add items</button></div>
       </>}
       {grocery.length > 0 && <div className="grocery-toolbar">{storeMode ? <strong className="store-mode-label"><ShoppingBasket /> {neededCount} item{neededCount === 1 ? '' : 's'} left to collect</strong> : <div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div>}<small>{storeMode ? 'Tap an item as it goes into your cart' : 'Items are grouped by aisle automatically'}</small></div>}
-      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => { const bought = purchasedGroceryAmount(item); const isNew = Boolean(item.id && newGroceryIds.has(item.id)); return <div className={`${item.checked ? 'grocery-row checked' : 'grocery-row'}${isNew ? ' is-new' : ''}`} key={item.id || `${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked, ...(!entry.checked ? {} : { purchase: undefined }) } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}{isNew && <em className="grocery-new-pill">New</em>}</strong><small>{item.checked && item.purchase ? `Bought ${formatAmount(bought.amount)} ${bought.unit} · needed ${formatAmount(item.amount)} ${item.unit}` : `${formatAmount(item.amount)} ${item.unit}`}</small></p>{!storeMode && <div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => setGrocery((items) => items.filter((_, i) => i !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button></div>}</div> })}</section>)}</div>
+      <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => { const bought = purchasedGroceryAmount(item); const isNew = Boolean(item.id && newGroceryIds.has(item.id)); return <div className={`${item.checked ? 'grocery-row checked' : 'grocery-row'}${isNew ? ' is-new' : ''}`} key={item.id || `${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked, ...(!entry.checked ? {} : { purchase: undefined }) } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}{isNew && <em className="grocery-new-pill">New</em>}</strong><small>{item.checked && item.purchase ? `Bought ${formatAmount(bought.amount)} ${bought.unit} · needed ${formatAmount(item.amount)} ${item.unit}` : `${formatAmount(item.amount)} ${item.unit}`}</small></p>{!storeMode && <div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => removeGroceryItem(item, index)} aria-label={`Remove ${item.name}`}><Trash2 /></button></div>}</div> })}</section>)}</div>
       {!grocery.length && <Empty title="Your list is clear" copy="Add several items above or choose an almost-ready recipe." />}
       {grocery.length > 0 && !visible.length && <Empty title={filter === 'checked' ? 'Nothing collected yet' : 'Everything is collected'} copy={filter === 'checked' ? 'Tap an item while shopping to move it here.' : 'Switch to Collected to review your cart.'} />}
     </div>{!storeMode && <StaplesPanel groups={stapleGroups} staples={staples} onAdd={(items) => onReviewItems(groceryFromStaples(items), 'staples')} onManage={() => setStaplesOpen(true)} />}</div>
@@ -1422,7 +1461,7 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
     {adding && <GroceryItemEditor item={{ name: '', amount: 1, unit: 'item', checked: false }} mode="add" onClose={() => setAdding(false)} onSave={saveNewItem} />}
     {aisleEditorOpen && <AisleOrderEditor order={aisleOrder} onChange={setAisleOrder} onClose={() => setAisleEditorOpen(false)} />}
     {purchaseReviewOpen && <PurchaseReview items={grocery.filter((item) => item.checked)} inventory={inventory} rememberedProducts={rememberedProducts} householdId={householdId} accessToken={accessToken} isOnline={isOnline} onClose={() => setPurchaseReviewOpen(false)} onConfirm={moveCheckedToKitchen} />}
-    {staplesOpen && <StaplesManager groups={stapleGroups} staples={staples} setGroups={setStapleGroups} setStaples={setStaples} onAddToGrocery={(items) => onReviewItems(groceryFromStaples(items), 'staples')} onClose={() => setStaplesOpen(false)} notify={notify} />}
+    {staplesOpen && <StaplesManager groups={stapleGroups} staples={staples} setGroups={setStapleGroups} setStaples={setStaples} onAddToGrocery={(items) => onReviewItems(groceryFromStaples(items), 'staples')} onClose={() => setStaplesOpen(false)} notify={notify} offerUndo={offerUndo} />}
   </section>
 }
 
@@ -1566,9 +1605,9 @@ function StaplesPanel({ groups, staples, onAdd, onManage }: { groups: GrocerySta
   return <aside className="staples-panel panel"><div className="staples-panel-head"><div><span className="eyebrow">Buy again</span><h3>Your staples</h3></div><button onClick={onManage}><SettingsIcon /> Manage</button></div>{orderedGroups.length ? <div className="staple-group-list">{orderedGroups.map((group) => { const items = orderedStaples(staples, group.id); return <section key={group.id}><header><div><strong>{group.name}</strong><small>{items.length} item{items.length === 1 ? '' : 's'}</small></div>{items.length > 0 && <button onClick={() => onAdd(items)}><Plus /> Add all</button>}</header><div>{items.slice(0, 5).map((item) => <button key={item.id} onClick={() => onAdd([item])}><span>{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{formatAmount(item.amount)} {item.unit}</small></p><Plus /></button>)}{items.length > 5 && <small className="more-staples">+{items.length - 5} more in Manage</small>}</div></section> })}</div> : <div className="staples-empty"><Bookmark /><strong>Save your weekly essentials</strong><p>Use the bookmark on a grocery item or create a custom staple group.</p><button className="secondary-button" onClick={onManage}>Create staples</button></div>}<div className="staples-tip"><ShoppingBasket /><p>Staples keep their usual quantity and merge safely with items already on your list.</p></div></aside>
 }
 
-function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery, onClose, notify }: {
+function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery, onClose, notify, offerUndo }: {
   groups: GroceryStapleGroup[]; staples: GroceryStaple[]; setGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
-  setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; onAddToGrocery: (items: GroceryStaple[]) => void; onClose: () => void; notify: (message: string) => void
+  setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; onAddToGrocery: (items: GroceryStaple[]) => void; onClose: () => void; notify: (message: string) => void; offerUndo: UndoNotice
 }) {
   const orderedGroups = orderedStapleGroups(groups)
   const [activeGroupId, setActiveGroupId] = useState(orderedGroups[0]?.id || '')
@@ -1619,10 +1658,33 @@ function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery
   }
   function removeGroup(group: GroceryStapleGroup) {
     if (!window.confirm(`Remove “${group.name}” and all of its staples?`)) return
+    const groupIndex = groups.findIndex((entry) => entry.id === group.id)
+    const removedStaples = staples.filter((entry) => entry.groupId === group.id)
     const remaining = orderedStapleGroups(groups.filter((entry) => entry.id !== group.id))
     setActiveGroupId(remaining[0]?.id || '')
     setGroups((current) => current.filter((entry) => entry.id !== group.id))
     setStaples((current) => current.filter((entry) => entry.groupId !== group.id))
+    offerUndo(`${group.name} deleted`, () => {
+      setGroups((current) => {
+        if (current.some((entry) => entry.id === group.id)) return current
+        const next = [...current]
+        next.splice(Math.max(0, Math.min(groupIndex, next.length)), 0, group)
+        return next
+      })
+      setStaples((current) => [...current.filter((entry) => !removedStaples.some((removed) => removed.id === entry.id)), ...removedStaples])
+      setActiveGroupId(group.id)
+    }, `${group.name} restored`)
+  }
+  function removeStaple(staple: GroceryStaple, index: number) {
+    setStaples((current) => current.filter((item) => item.id !== staple.id))
+    offerUndo(`${staple.name} deleted`, () => setStaples((current) => {
+      if (current.some((item) => item.id === staple.id)) return current
+      const next = [...current]
+      const groupPositions = next.map((item, itemIndex) => item.groupId === staple.groupId ? itemIndex : -1).filter((itemIndex) => itemIndex >= 0)
+      const insertionIndex = groupPositions[index] ?? (groupPositions.length ? groupPositions[groupPositions.length - 1] + 1 : next.length)
+      next.splice(insertionIndex, 0, staple)
+      return next
+    }), `${staple.name} restored`)
   }
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="modal staples-manager" onMouseDown={(event) => event.stopPropagation()}>
@@ -1640,7 +1702,7 @@ function StaplesManager({ groups, staples, setGroups, setStaples, onAddToGrocery
             <label>Unit<UnitPicker value={singleUnit} onChange={(value) => { setSingleUnitTouched(true); setSingleUnit(value) }} ariaLabel="New staple unit" required /></label>
             <button type="submit" disabled={!singleName.trim() || !singleUnit.trim()}><Plus /> Add staple</button>
           </form> : <form className="staple-add-form" onSubmit={addStaples}><textarea autoFocus value={stapleDraft} onChange={(event) => setStapleDraft(event.target.value)} placeholder={'Add several staples:\n2 cartons eggs\n1 gallon milk'} aria-label="New staples" /><button type="submit" disabled={!stapleDraft.trim()}><Plus /> Add staples</button></form>}
-          {activeStaples.length ? <div className="staple-editor-list">{activeStaples.map((staple, index) => <div key={staple.id}><span>{groceryEmoji(staple)}</span><label>Name<input value={staple.name} onChange={(event) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, name: event.target.value } : item))} /></label><label>Quantity<NumberField min="0.01" step="0.01" value={staple.amount} onValueChange={(amount) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, amount } : item))} /></label><label>Unit<UnitPicker value={staple.unit} onChange={(unit) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, unit } : item))} ariaLabel={`Unit for ${staple.name}`} required /></label><div className="staple-row-actions"><button disabled={index === 0} onClick={() => setStaples((current) => moveStaple(current, staple.id, -1))} aria-label={`Move ${staple.name} up`}><ArrowUp /></button><button disabled={index === activeStaples.length - 1} onClick={() => setStaples((current) => moveStaple(current, staple.id, 1))} aria-label={`Move ${staple.name} down`}><ArrowDown /></button><button onClick={() => onAddToGrocery([staple])} aria-label={`Add ${staple.name} to grocery list`}><ShoppingBasket /></button><button className="delete" onClick={() => setStaples((current) => current.filter((item) => item.id !== staple.id))} aria-label={`Remove ${staple.name} staple`}><Trash2 /></button></div></div>)}</div> : <div className="staples-manager-empty"><Bookmark /><p>Add the foods your household buys regularly.</p></div>}
+          {activeStaples.length ? <div className="staple-editor-list">{activeStaples.map((staple, index) => <div key={staple.id}><span>{groceryEmoji(staple)}</span><label>Name<input value={staple.name} onChange={(event) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, name: event.target.value } : item))} /></label><label>Quantity<NumberField min="0.01" step="0.01" value={staple.amount} onValueChange={(amount) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, amount } : item))} /></label><label>Unit<UnitPicker value={staple.unit} onChange={(unit) => setStaples((current) => current.map((item) => item.id === staple.id ? { ...item, unit } : item))} ariaLabel={`Unit for ${staple.name}`} required /></label><div className="staple-row-actions"><button disabled={index === 0} onClick={() => setStaples((current) => moveStaple(current, staple.id, -1))} aria-label={`Move ${staple.name} up`}><ArrowUp /></button><button disabled={index === activeStaples.length - 1} onClick={() => setStaples((current) => moveStaple(current, staple.id, 1))} aria-label={`Move ${staple.name} down`}><ArrowDown /></button><button onClick={() => onAddToGrocery([staple])} aria-label={`Add ${staple.name} to grocery list`}><ShoppingBasket /></button><button className="delete" onClick={() => removeStaple(staple, index)} aria-label={`Remove ${staple.name} staple`}><Trash2 /></button></div></div>)}</div> : <div className="staples-manager-empty"><Bookmark /><p>Add the foods your household buys regularly.</p></div>}
           {activeStaples.length > 0 && <button className="submit-button" onClick={() => onAddToGrocery(activeStaples)}>Add group to grocery list <ArrowRight /></button>}
         </> : <div className="staples-manager-empty"><Bookmark /><h3>Create your first group</h3><p>Try Weekly essentials, Breakfast, or Costco run.</p></div>}</div>
       </div>
