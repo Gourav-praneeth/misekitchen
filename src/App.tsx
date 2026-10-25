@@ -11,7 +11,7 @@ import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rem
 import { applyBarcodeToGroceryPurchase, barcodeProductFromRemembered, bestGroceryBarcodeMatch, groceryBarcodeMatchScore, groceryItemFromBarcodeProduct } from './groceryBarcode'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
-import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type ForcedCollectionVersions, type KitchenCollection, type KitchenFingerprints } from './collaborationSync'
+import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, rebasePendingKitchen, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type ForcedCollectionVersions, type KitchenCollection, type KitchenFingerprints } from './collaborationSync'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
@@ -296,7 +296,9 @@ function App() {
       syncBaselineSnapshot.current = null
       legacyIconBackfillHousehold.current = null
       try {
-        const localKitchen = readStoredKitchen('pending', session!.user.id) || readStoredKitchen('cache', session!.user.id)
+        const pendingKitchen = readStoredKitchen('pending', session!.user.id)
+        const cachedKitchen = readStoredKitchen('cache', session!.user.id)
+        const localKitchen = pendingKitchen || cachedKitchen
         if (!isOnline) {
           if (localKitchen) {
             setHouseholdId(localKitchen.householdId)
@@ -334,21 +336,31 @@ function App() {
         }
         syncBaselineSnapshot.current = normalizedCloud
         syncBaseline.current = kitchenFingerprints(normalizedCloud)
-        const pending = readStoredKitchen('pending', session!.user.id)
+        const pending = pendingKitchen
         if (pending?.householdId === id) {
-          const pendingTemplates = pending.mealPlanTemplates || []
-          const pendingTemplateIds = new Set(pendingTemplates.map((template) => template.id))
-          const mergedTemplates = [...pendingTemplates, ...cloud.mealPlanTemplates.filter((template) => !pendingTemplateIds.has(template.id))]
-          setInventory(collapseInventoryPresence(normalizeLegacyInventory(pending.inventory).items.map((item) => withExpirationDate(item))))
-          setGrocery(normalizeLegacyGrocery(pending.grocery).items)
-          setStapleGroups(pending.stapleGroups || [])
-          setStaples(pending.staples || [])
-          setCustomRecipes(pending.recipes || [])
-          setMealPlan(pending.mealPlan || [])
-          setMealPlanTemplates(mergedTemplates)
+          const pendingShared: CollaborativeKitchenSnapshot = {
+            inventory: normalizeLegacyInventory(pending.inventory).items,
+            grocery: normalizeLegacyGrocery(pending.grocery).items,
+            stapleGroups: pending.stapleGroups || [], staples: pending.staples || [],
+            recipes: pending.recipes || [], mealPlan: pending.mealPlan || [], mealPlanTemplates: pending.mealPlanTemplates || [],
+          }
+          const cachedShared: CollaborativeKitchenSnapshot | null = cachedKitchen?.householdId === id ? {
+            inventory: normalizeLegacyInventory(cachedKitchen.inventory).items,
+            grocery: normalizeLegacyGrocery(cachedKitchen.grocery).items,
+            stapleGroups: cachedKitchen.stapleGroups || [], staples: cachedKitchen.staples || [],
+            recipes: cachedKitchen.recipes || [], mealPlan: cachedKitchen.mealPlan || [], mealPlanTemplates: cachedKitchen.mealPlanTemplates || [],
+          } : null
+          const rebased = rebasePendingKitchen(normalizedCloud, pendingShared, cachedShared)
+          setInventory(collapseInventoryPresence(rebased.inventory.map((item) => withExpirationDate(item))))
+          setGrocery(rebased.grocery)
+          setStapleGroups(rebased.stapleGroups)
+          setStaples(rebased.staples)
+          setCustomRecipes(rebased.recipes)
+          setMealPlan(rebased.mealPlan)
+          setMealPlanTemplates(rebased.mealPlanTemplates)
           setCookingHistory(pending.cookingHistory || cloud.cookingHistory)
           setProductMemory(pending.productMemory || cloud.productMemory)
-          mealPlanTemplatesDirty.current = pendingTemplates.length > 0
+          mealPlanTemplatesDirty.current = pendingShared.mealPlanTemplates.length > 0
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
           const initialInventory = starterInventory.current.length ? starterInventory.current : seedInventory.map((item) => withExpirationDate(item))

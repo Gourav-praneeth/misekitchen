@@ -15,6 +15,58 @@ export type CollaborativeKitchenSnapshot = {
 
 export type KitchenFingerprints = Record<KitchenCollection, string>
 
+function rowIdentity(row: { id?: string; name?: string; unit?: string }) {
+  return String(row.id || `${row.name || ''}:${row.unit || ''}`)
+}
+
+function mergePendingRows<T extends { id?: string; name?: string; unit?: string }>(latest: T[], pending: T[], cached?: T[]) {
+  const latestById = new Map(latest.map((row) => [rowIdentity(row), row]))
+  const pendingById = new Map(pending.map((row) => [rowIdentity(row), row]))
+  const cachedById = new Map((cached || []).map((row) => [rowIdentity(row), row]))
+  const ids = new Set([...latestById.keys(), ...pendingById.keys(), ...cachedById.keys()])
+
+  return [...ids].flatMap((id) => {
+    const cloudRow = latestById.get(id)
+    const pendingRow = pendingById.get(id)
+    const cachedRow = cachedById.get(id)
+
+    // Without a cached baseline we cannot distinguish an intentional local
+    // deletion from a row another member added while this device was offline.
+    // Preserve both sides and let an explicit later action remove the row.
+    if (!cached) return pendingRow ? [pendingRow] : cloudRow ? [cloudRow] : []
+
+    // Rows that existed in the local baseline and disappeared from the pending
+    // snapshot were intentionally removed on this device.
+    if (cachedRow && !pendingRow) return []
+
+    // A local edit wins over a concurrent cloud edit. If the pending row is
+    // unchanged from the cached baseline, prefer the latest cloud version.
+    if (pendingRow && cachedRow) {
+      return [JSON.stringify(pendingRow) === JSON.stringify(cachedRow) && cloudRow ? cloudRow : pendingRow]
+    }
+
+    // A row absent from the cached baseline is a new local or remote addition.
+    return pendingRow ? [pendingRow] : cloudRow ? [cloudRow] : []
+  })
+}
+
+/** Rebase unsaved local changes onto a newer household snapshot. */
+export function rebasePendingKitchen(
+  latest: CollaborativeKitchenSnapshot,
+  pending: CollaborativeKitchenSnapshot,
+  cached?: CollaborativeKitchenSnapshot | null,
+): CollaborativeKitchenSnapshot {
+  return {
+    inventory: mergePendingRows(latest.inventory, pending.inventory, cached?.inventory),
+    grocery: mergePendingRows(latest.grocery, pending.grocery, cached?.grocery),
+    stapleGroups: mergePendingRows(latest.stapleGroups, pending.stapleGroups, cached?.stapleGroups),
+    staples: mergePendingRows(latest.staples, pending.staples, cached?.staples),
+    recipes: mergePendingRows(latest.recipes, pending.recipes, cached?.recipes),
+    mealPlan: mergePendingRows(latest.mealPlan, pending.mealPlan, cached?.mealPlan),
+    mealPlanTemplates: mergePendingRows(latest.mealPlanTemplates, pending.mealPlanTemplates, cached?.mealPlanTemplates),
+  }
+}
+
 function stableRows<T extends { id?: string; name?: string }>(rows: T[]) {
   return [...rows].sort((left, right) => String(left.id || left.name || '').localeCompare(String(right.id || right.name || '')))
 }

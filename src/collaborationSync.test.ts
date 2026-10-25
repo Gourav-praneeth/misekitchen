@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, changedSnapshotRows, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, removedSnapshotRowIds, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
+import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, changedSnapshotRows, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, rebasePendingKitchen, removedSnapshotRowIds, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
 
 const empty: CollaborativeKitchenSnapshot = {
   inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [],
@@ -96,6 +96,38 @@ describe('household collection synchronization', () => {
 
     expect(reconciled.map((row) => row.id).sort()).toEqual(['legacy-milk', 'remote-eggs'])
     expect(removedSnapshotRowIds(restoredLocal, baseline)).toEqual([])
+  })
+
+  it('rebases pending local changes without deleting another member’s new row', () => {
+    const cached = { ...empty, grocery: [{ id: 'milk', name: 'Milk', amount: 1, unit: 'item', checked: false }] }
+    const pending = { ...cached, grocery: [] }
+    const latest = {
+      ...cached,
+      grocery: [
+        ...cached.grocery,
+        { id: 'remote-pears', name: 'Pears', amount: 1, unit: 'whole', checked: false },
+      ],
+    }
+
+    expect(rebasePendingKitchen(latest, pending, cached).grocery).toEqual([
+      { id: 'remote-pears', name: 'Pears', amount: 1, unit: 'whole', checked: false },
+    ])
+  })
+
+  it('keeps remote edits when the pending row was unchanged locally', () => {
+    const cached = { ...empty, grocery: [{ id: 'milk', name: 'Milk', amount: 1, unit: 'item', checked: false }] }
+    const pending = structuredClone(cached)
+    const latest = { ...cached, grocery: [{ ...cached.grocery[0], amount: 2 }] }
+
+    expect(rebasePendingKitchen(latest, pending, cached).grocery[0].amount).toBe(2)
+  })
+
+  it('prefers a local pending edit over a concurrent edit to the same row', () => {
+    const cached = { ...empty, grocery: [{ id: 'milk', name: 'Milk', amount: 1, unit: 'item', checked: false }] }
+    const pending = { ...cached, grocery: [{ ...cached.grocery[0], amount: 3 }] }
+    const latest = { ...cached, grocery: [{ ...cached.grocery[0], amount: 2 }] }
+
+    expect(rebasePendingKitchen(latest, pending, cached).grocery[0].amount).toBe(3)
   })
 
   it('can force an unchanged legacy collection to save again', () => {
