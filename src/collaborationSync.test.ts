@@ -84,6 +84,20 @@ describe('household collection synchronization', () => {
     expect(acknowledgeForcedCollections(restoration, restoration)).toEqual({})
   })
 
+  it('restores a legacy row without removing another member’s concurrent addition', () => {
+    const baseline = [{ id: 'legacy-milk', name: 'Milk' }]
+    const remoteAfterDeletion = [{ id: 'remote-eggs', name: 'Eggs' }]
+    const restoredLocal = [...baseline]
+    const forcedUpserts = changedSnapshotRows(restoredLocal, baseline, true)
+    const reconciled = [
+      ...remoteAfterDeletion.filter((row) => !forcedUpserts.some((upsert) => upsert.id === row.id)),
+      ...forcedUpserts,
+    ]
+
+    expect(reconciled.map((row) => row.id).sort()).toEqual(['legacy-milk', 'remote-eggs'])
+    expect(removedSnapshotRowIds(restoredLocal, baseline)).toEqual([])
+  })
+
   it('can force an unchanged legacy collection to save again', () => {
     const fingerprint = kitchenFingerprints(empty)
     const forced = forceKitchenCollections({}, ['grocery'])
@@ -103,5 +117,15 @@ describe('household collection synchronization', () => {
   it('initializes an existing grocery list as already seen', () => {
     const items = [{ id: 'existing', name: 'Milk', amount: 1, unit: 'item', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T18:00:00Z' }]
     expect([...unseenGroceryItemIds(items, 'member-a', null, new Date('2026-10-24T18:10:00Z').getTime())]).toEqual([])
+  })
+
+  it('does not relabel an edited item as new but does label a later re-addition', () => {
+    const cutoff = '2026-10-24T18:00:00Z'
+    const items = [
+      { id: 'edited-existing', name: 'Oat milk', amount: 2, unit: 'cartons', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T17:30:00Z' },
+      { id: 'readded-later', name: 'Eggs', amount: 1, unit: 'dozen', checked: false, createdBy: 'member-b', createdAt: '2026-10-24T18:05:00Z' },
+    ]
+
+    expect([...unseenGroceryItemIds(items, 'member-a', cutoff)]).toEqual(['readded-later'])
   })
 })
