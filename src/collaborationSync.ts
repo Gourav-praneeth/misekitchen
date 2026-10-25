@@ -44,6 +44,32 @@ export function acceptKitchenCollections(baseline: Partial<KitchenFingerprints>,
   return next
 }
 
+export function acceptKitchenSnapshot(baseline: CollaborativeKitchenSnapshot | null, current: CollaborativeKitchenSnapshot, collections: KitchenCollection[]) {
+  if (!baseline) return current
+  const selected = new Set(collections)
+  return {
+    inventory: selected.has('inventory') ? current.inventory : baseline.inventory,
+    grocery: selected.has('grocery') ? current.grocery : baseline.grocery,
+    stapleGroups: selected.has('staples') ? current.stapleGroups : baseline.stapleGroups,
+    staples: selected.has('staples') ? current.staples : baseline.staples,
+    recipes: selected.has('recipes') ? current.recipes : baseline.recipes,
+    mealPlan: selected.has('mealPlan') ? current.mealPlan : baseline.mealPlan,
+    mealPlanTemplates: selected.has('mealPlanTemplates') ? current.mealPlanTemplates : baseline.mealPlanTemplates,
+  }
+}
+
+export function changedSnapshotRows<T extends { id: string }>(current: T[], previous?: T[], force = false) {
+  if (!previous || force) return current
+  const baseline = new Map(previous.map((row) => [row.id, JSON.stringify(row)]))
+  return current.filter((row) => baseline.get(row.id) !== JSON.stringify(row))
+}
+
+export function removedSnapshotRowIds<T extends { id: string }>(current: T[], previous?: T[]) {
+  if (!previous) return []
+  const currentIds = new Set(current.map((row) => row.id))
+  return previous.flatMap((row) => currentIds.has(row.id) ? [] : [row.id])
+}
+
 export function forceKitchenCollections(current: ForcedCollectionVersions, collections: KitchenCollection[]) {
   const next = { ...current }
   collections.forEach((collection) => { next[collection] = (next[collection] || 0) + 1 })

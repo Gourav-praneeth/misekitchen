@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { KitchenCollection } from './collaborationSync'
+import { changedSnapshotRows, removedSnapshotRowIds, type CollaborativeKitchenSnapshot, type KitchenCollection } from './collaborationSync'
 import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
 
@@ -251,32 +251,57 @@ export async function deleteCookingHistoryEntry(householdId: string, entryId: st
   if (error) throw error
 }
 
-export async function saveMealPlanSnapshot(householdId: string, entries: MealPlanEntry[]) {
+async function deleteSnapshotRows(table: string, householdId: string, currentIds: string[], previousIds?: string[]) {
+  if (!supabase) return
+  if (previousIds) {
+    const removedIds = removedSnapshotRowIds(currentIds.map((id) => ({ id })), previousIds.map((id) => ({ id })))
+    if (!removedIds.length) return
+    const { error } = await supabase.from(table).delete().eq('household_id', householdId).in('id', removedIds)
+    if (error) throw error
+    return
+  }
+  if (!currentIds.length) {
+    const { error } = await supabase.from(table).delete().eq('household_id', householdId)
+    if (error) throw error
+    return
+  }
+  const quotedIds = currentIds.map((id) => `"${id.replaceAll('"', '\\"')}"`).join(',')
+  const { error } = await supabase.from(table).delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
+  if (error) throw error
+}
+
+export async function saveMealPlanSnapshot(householdId: string, entries: MealPlanEntry[], previousEntries?: MealPlanEntry[], force = false) {
   if (!supabase) return
   const rows = entries.map((entry) => ({
     household_id: householdId, id: entry.id, plan_date: entry.date,
     recipe_id: entry.recipeId, servings: entry.servings, meal_slot: entry.mealSlot,
   }))
-  if (rows.length) {
-    const { error } = await supabase.from('meal_plan_entries').upsert(rows, { onConflict: 'household_id,id' })
-    if (error) throw error
-    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-    const { error: deleteError } = await supabase.from('meal_plan_entries').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
-    if (deleteError) throw deleteError
-  } else {
-    const { error } = await supabase.from('meal_plan_entries').delete().eq('household_id', householdId)
+  const previousRows = previousEntries?.map((entry) => ({
+    household_id: householdId, id: entry.id, plan_date: entry.date,
+    recipe_id: entry.recipeId, servings: entry.servings, meal_slot: entry.mealSlot,
+  }))
+  const upserts = changedSnapshotRows(rows, previousRows, force)
+  if (upserts.length) {
+    const { error } = await supabase.from('meal_plan_entries').upsert(upserts, { onConflict: 'household_id,id' })
     if (error) throw error
   }
+  await deleteSnapshotRows('meal_plan_entries', householdId, rows.map((row) => row.id), previousRows?.map((row) => row.id))
 }
 
-export async function saveMealPlanTemplateSnapshot(householdId: string, templates: MealPlanTemplate[]) {
+export async function saveMealPlanTemplateSnapshot(householdId: string, templates: MealPlanTemplate[], previousTemplates?: MealPlanTemplate[], force = false) {
   if (!supabase) return
   const rows = templates.map((template) => ({
     household_id: householdId, id: template.id, name: template.name, entries: template.entries,
   }))
-  if (!rows.length) return
-  const { error } = await supabase.from('meal_plan_templates').upsert(rows, { onConflict: 'household_id,id' })
-  if (error) throw error
+  const previousRows = previousTemplates?.map((template) => ({
+    household_id: householdId, id: template.id, name: template.name, entries: template.entries,
+  }))
+  const upserts = changedSnapshotRows(rows, previousRows, force)
+  if (upserts.length) {
+    const { error } = await supabase.from('meal_plan_templates').upsert(upserts, { onConflict: 'household_id,id' })
+    if (error) throw error
+  }
+  await deleteSnapshotRows('meal_plan_templates', householdId, rows.map((row) => row.id), previousRows?.map((row) => row.id))
 }
 
 export async function deleteMealPlanTemplate(householdId: string, templateId: string) {
@@ -285,7 +310,7 @@ export async function deleteMealPlanTemplate(householdId: string, templateId: st
   if (error) throw error
 }
 
-export async function saveRecipeSnapshot(householdId: string, items: Recipe[]) {
+export async function saveRecipeSnapshot(householdId: string, items: Recipe[], previousItems?: Recipe[], force = false) {
   if (!supabase) return
   const rows = items.map((item) => ({
     household_id: householdId, id: item.id, name: item.name, description: item.description,
@@ -295,16 +320,20 @@ export async function saveRecipeSnapshot(householdId: string, items: Recipe[]) {
     recipe_source: item.source === 'spoonacular' ? 'spoonacular' : 'user',
     external_id: item.externalId || null, source_url: item.sourceUrl || null, image_url: item.imageUrl || null,
   }))
-  if (rows.length) {
-    const { error } = await supabase.from('household_recipes').upsert(rows, { onConflict: 'household_id,id' })
-    if (error) throw error
-    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-    const { error: deleteError } = await supabase.from('household_recipes').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
-    if (deleteError) throw deleteError
-  } else {
-    const { error } = await supabase.from('household_recipes').delete().eq('household_id', householdId)
+  const previousRows = previousItems?.map((item) => ({
+    household_id: householdId, id: item.id, name: item.name, description: item.description,
+    time_minutes: item.time, servings: item.servings, protein_grams: item.protein,
+    accent: item.accent, emoji: item.emoji, ingredients: item.ingredients,
+    instructions: item.instructions || [],
+    recipe_source: item.source === 'spoonacular' ? 'spoonacular' : 'user',
+    external_id: item.externalId || null, source_url: item.sourceUrl || null, image_url: item.imageUrl || null,
+  }))
+  const upserts = changedSnapshotRows(rows, previousRows, force)
+  if (upserts.length) {
+    const { error } = await supabase.from('household_recipes').upsert(upserts, { onConflict: 'household_id,id' })
     if (error) throw error
   }
+  await deleteSnapshotRows('household_recipes', householdId, rows.map((row) => row.id), previousRows?.map((row) => row.id))
 }
 
 export async function markHouseholdInitialized(householdId: string) {
@@ -313,52 +342,58 @@ export async function markHouseholdInitialized(householdId: string) {
   if (error) throw error
 }
 
-export async function saveInventorySnapshot(householdId: string, items: InventoryItem[]) {
+export async function saveInventorySnapshot(householdId: string, items: InventoryItem[], previousItems?: InventoryItem[], force = false) {
   if (!supabase) return
-  if (items.length) {
-    const baseRows = items.map((item) => ({
+  const inventoryRows = (source: InventoryItem[]) => {
+    const baseRows = source.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
       quantity: 1, unit: 'item', category: item.category, location: item.location,
       expires_in: legacyExpirationDaysForStorage(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
     }))
-    const productRows = items.map((item, index) => ({
+    return source.map((item, index) => ({
       ...baseRows[index],
       barcode: item.barcode || null, brand: item.brand || null, product_image_url: item.productImageUrl || null,
       package_amount: item.packageAmount || null, package_unit: item.packageUnit || null, product_source: item.productSource || null,
     }))
-    let { error } = await supabase.from('inventory_items').upsert(productRows, { onConflict: 'household_id,id' })
+  }
+  const productRows = inventoryRows(items)
+  const previousRows = previousItems ? inventoryRows(previousItems) : undefined
+  const upserts = changedSnapshotRows(productRows, previousRows, force)
+  if (upserts.length) {
+    let { error } = await supabase.from('inventory_items').upsert(upserts, { onConflict: 'household_id,id' })
     // Keep production saves working while the optional product-identity migration is being applied.
     if (error && ['42703', 'PGRST204'].includes(error.code || '')) {
-      const fallback = await supabase.from('inventory_items').upsert(baseRows, { onConflict: 'household_id,id' })
+      const fallbackRows = upserts.map((row) => ({
+        household_id: row.household_id, id: row.id, name: row.name, emoji: row.emoji,
+        quantity: row.quantity, unit: row.unit, category: row.category, location: row.location,
+        expires_in: row.expires_in, expires_on: row.expires_on,
+      }))
+      const fallback = await supabase.from('inventory_items').upsert(fallbackRows, { onConflict: 'household_id,id' })
       error = fallback.error
     }
     if (error) throw error
-    const quotedIds = items.map((item) => `"${item.id.replaceAll('"', '\\"')}"`).join(',')
-    const { error: deleteError } = await supabase.from('inventory_items').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
-    if (deleteError) throw deleteError
-  } else {
-    const { error } = await supabase.from('inventory_items').delete().eq('household_id', householdId)
-    if (error) throw error
   }
+  await deleteSnapshotRows('inventory_items', householdId, productRows.map((row) => row.id), previousRows?.map((row) => row.id))
 }
 
-export async function saveGrocerySnapshot(householdId: string, items: GroceryItem[]) {
+export async function saveGrocerySnapshot(householdId: string, items: GroceryItem[], previousItems?: GroceryItem[], force = false) {
   if (!supabase) return
   const rows = items.map((item) => ({
     household_id: householdId,
     id: item.id || `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
   }))
-  if (rows.length) {
-    const { error } = await supabase.from('grocery_items').upsert(rows, { onConflict: 'household_id,id' })
-    if (error) throw error
-    const quotedIds = rows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-    const { error: deleteError } = await supabase.from('grocery_items').delete().eq('household_id', householdId).not('id', 'in', `(${quotedIds})`)
-    if (deleteError) throw deleteError
-  } else {
-    const { error } = await supabase.from('grocery_items').delete().eq('household_id', householdId)
+  const previousRows = previousItems?.map((item) => ({
+    household_id: householdId,
+    id: item.id || `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
+  }))
+  const upserts = changedSnapshotRows(rows, previousRows, force)
+  if (upserts.length) {
+    const { error } = await supabase.from('grocery_items').upsert(upserts, { onConflict: 'household_id,id' })
     if (error) throw error
   }
+  await deleteSnapshotRows('grocery_items', householdId, rows.map((row) => row.id), previousRows?.map((row) => row.id))
 }
 
 export async function loadGroceryItems(householdId: string): Promise<GroceryItem[]> {
@@ -411,55 +446,55 @@ export async function recordUnknownFoodTerm(name: string) {
   if (error) throw error
 }
 
-export async function saveStaplesSnapshot(householdId: string, groups: GroceryStapleGroup[], staples: GroceryStaple[]) {
+export async function saveStaplesSnapshot(
+  householdId: string,
+  groups: GroceryStapleGroup[],
+  staples: GroceryStaple[],
+  previousGroups?: GroceryStapleGroup[],
+  previousStaples?: GroceryStaple[],
+  force = false,
+) {
   if (!supabase) return
-  if (!groups.length) {
-    const { error } = await supabase.from('grocery_staple_groups').delete().eq('household_id', householdId)
-    if (error) throw error
-    return
-  }
   const groupRows = groups.map((group) => ({ household_id: householdId, id: group.id, name: group.name, sort_order: group.sortOrder }))
-  const { error: groupError } = await supabase.from('grocery_staple_groups').upsert(groupRows, { onConflict: 'household_id,id' })
-  if (groupError) throw groupError
-  const groupIds = groupRows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-  const { error: deleteGroupError } = await supabase.from('grocery_staple_groups').delete().eq('household_id', householdId).not('id', 'in', `(${groupIds})`)
-  if (deleteGroupError) throw deleteGroupError
-
-  if (!staples.length) {
-    const { error } = await supabase.from('grocery_staples').delete().eq('household_id', householdId)
+  const previousGroupRows = previousGroups?.map((group) => ({ household_id: householdId, id: group.id, name: group.name, sort_order: group.sortOrder }))
+  const groupUpserts = changedSnapshotRows(groupRows, previousGroupRows, force)
+  if (groupUpserts.length) {
+    const { error } = await supabase.from('grocery_staple_groups').upsert(groupUpserts, { onConflict: 'household_id,id' })
     if (error) throw error
-    return
   }
   const stapleRows = staples.map((staple) => ({
     household_id: householdId, id: staple.id, group_id: staple.groupId,
     name: staple.name, amount: staple.amount, unit: staple.unit, sort_order: staple.sortOrder,
   }))
-  const { error: stapleError } = await supabase.from('grocery_staples').upsert(stapleRows, { onConflict: 'household_id,id' })
-  if (stapleError) throw stapleError
-  const stapleIds = stapleRows.map((row) => `"${row.id.replaceAll('"', '\\"')}"`).join(',')
-  const { error: deleteStapleError } = await supabase.from('grocery_staples').delete().eq('household_id', householdId).not('id', 'in', `(${stapleIds})`)
-  if (deleteStapleError) throw deleteStapleError
+  const previousStapleRows = previousStaples?.map((staple) => ({
+    household_id: householdId, id: staple.id, group_id: staple.groupId,
+    name: staple.name, amount: staple.amount, unit: staple.unit, sort_order: staple.sortOrder,
+  }))
+  const stapleUpserts = changedSnapshotRows(stapleRows, previousStapleRows, force)
+  if (stapleUpserts.length) {
+    const { error } = await supabase.from('grocery_staples').upsert(stapleUpserts, { onConflict: 'household_id,id' })
+    if (error) throw error
+  }
+  await deleteSnapshotRows('grocery_staples', householdId, stapleRows.map((row) => row.id), previousStapleRows?.map((row) => row.id))
+  await deleteSnapshotRows('grocery_staple_groups', householdId, groupRows.map((row) => row.id), previousGroupRows?.map((row) => row.id))
 }
 
-type KitchenSnapshot = {
-  inventory: InventoryItem[]
-  grocery: GroceryItem[]
-  stapleGroups: GroceryStapleGroup[]
-  staples: GroceryStaple[]
-  recipes: Recipe[]
-  mealPlan: MealPlanEntry[]
-  mealPlanTemplates?: MealPlanTemplate[]
-}
-
-export async function saveKitchenSnapshot(householdId: string, snapshot: KitchenSnapshot, collections: KitchenCollection[] = ['inventory', 'grocery', 'staples', 'recipes', 'mealPlan', 'mealPlanTemplates']) {
+export async function saveKitchenSnapshot(
+  householdId: string,
+  snapshot: CollaborativeKitchenSnapshot,
+  collections: KitchenCollection[] = ['inventory', 'grocery', 'staples', 'recipes', 'mealPlan', 'mealPlanTemplates'],
+  previous?: CollaborativeKitchenSnapshot | null,
+  forcedCollections: KitchenCollection[] = [],
+) {
   const selected = new Set(collections)
+  const forced = new Set(forcedCollections)
   const operations: Array<readonly [string, Promise<void>]> = [
-    ...(selected.has('inventory') ? [['inventory', saveInventorySnapshot(householdId, snapshot.inventory)] as const] : []),
-    ...(selected.has('grocery') ? [['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery)] as const] : []),
-    ...(selected.has('staples') ? [['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples)] as const] : []),
-    ...(selected.has('recipes') ? [['recipes', saveRecipeSnapshot(householdId, snapshot.recipes)] as const] : []),
-    ...(selected.has('mealPlan') ? [['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan)] as const] : []),
-    ...(selected.has('mealPlanTemplates') && snapshot.mealPlanTemplates !== undefined ? [['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates)] as const] : []),
+    ...(selected.has('inventory') ? [['inventory', saveInventorySnapshot(householdId, snapshot.inventory, previous?.inventory, forced.has('inventory'))] as const] : []),
+    ...(selected.has('grocery') ? [['grocery list', saveGrocerySnapshot(householdId, snapshot.grocery, previous?.grocery, forced.has('grocery'))] as const] : []),
+    ...(selected.has('staples') ? [['staples', saveStaplesSnapshot(householdId, snapshot.stapleGroups, snapshot.staples, previous?.stapleGroups, previous?.staples, forced.has('staples'))] as const] : []),
+    ...(selected.has('recipes') ? [['recipes', saveRecipeSnapshot(householdId, snapshot.recipes, previous?.recipes, forced.has('recipes'))] as const] : []),
+    ...(selected.has('mealPlan') ? [['meal plan', saveMealPlanSnapshot(householdId, snapshot.mealPlan, previous?.mealPlan, forced.has('mealPlan'))] as const] : []),
+    ...(selected.has('mealPlanTemplates') ? [['meal plan templates', saveMealPlanTemplateSnapshot(householdId, snapshot.mealPlanTemplates, previous?.mealPlanTemplates, forced.has('mealPlanTemplates'))] as const] : []),
   ]
   const results = await Promise.allSettled(operations.map(([, operation]) => operation))
   const failures = results.flatMap((result, index) => result.status === 'rejected'

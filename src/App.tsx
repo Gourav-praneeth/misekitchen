@@ -11,7 +11,7 @@ import { inventoryItemFromBarcodeProduct, inventoryItemFromHouseholdProduct, rem
 import { applyBarcodeToGroceryPurchase, barcodeProductFromRemembered, bestGroceryBarcodeMatch, groceryBarcodeMatchScore, groceryItemFromBarcodeProduct } from './groceryBarcode'
 import { recipes, seedInventory } from './data'
 import { cookingHistoryEntry, cookingHistoryStats, recentCookingHistory } from './cookingHistory'
-import { acceptKitchenCollections, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type ForcedCollectionVersions, type KitchenCollection, type KitchenFingerprints } from './collaborationSync'
+import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot, type ForcedCollectionVersions, type KitchenCollection, type KitchenFingerprints } from './collaborationSync'
 import { expirationWarning, suggestedExpirationDate, type FreshnessState } from './expirationIntelligence'
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
@@ -175,6 +175,7 @@ function App() {
   const remoteRefreshTimer = useRef<number | null>(null)
   const remoteRefreshRequest = useRef(0)
   const syncBaseline = useRef<Partial<KitchenFingerprints>>({})
+  const syncBaselineSnapshot = useRef<CollaborativeKitchenSnapshot | null>(null)
   const forceAllCollectionsSave = useRef(false)
   const forcedCollectionVersions = useRef<ForcedCollectionVersions>({})
   const legacyIconBackfillHousehold = useRef<string | null>(null)
@@ -206,6 +207,7 @@ function App() {
       }
       applyingRemoteSnapshot.current = true
       syncBaseline.current = kitchenFingerprints(shared)
+      syncBaselineSnapshot.current = shared
       setInventory(nextInventory)
       setGrocery(nextGrocery)
       setStapleGroups(cloud.stapleGroups)
@@ -244,6 +246,8 @@ function App() {
       else {
         setHouseholdId(null)
         setCloudReady(false)
+        syncBaseline.current = {}
+        syncBaselineSnapshot.current = null
         setProductMemory([])
         setFoodMappings([])
         setFoodMappingsReady(false)
@@ -283,6 +287,8 @@ function App() {
     async function hydrate() {
       setCloudReady(false)
       setFoodMappingsReady(false)
+      syncBaseline.current = {}
+      syncBaselineSnapshot.current = null
       legacyIconBackfillHousehold.current = null
       try {
         const localKitchen = readStoredKitchen('pending', session!.user.id) || readStoredKitchen('cache', session!.user.id)
@@ -312,6 +318,17 @@ function App() {
         syncRevision.current = Date.now()
         syncConflict.current = false
         setHouseholdId(id)
+        const normalizedCloud: CollaborativeKitchenSnapshot = {
+          inventory: normalizeLegacyInventory(cloud.inventory).items,
+          grocery: normalizeLegacyGrocery(cloud.grocery).items,
+          stapleGroups: cloud.stapleGroups,
+          staples: cloud.staples,
+          recipes: cloud.recipes,
+          mealPlan: cloud.mealPlan,
+          mealPlanTemplates: cloud.mealPlanTemplates,
+        }
+        syncBaselineSnapshot.current = normalizedCloud
+        syncBaseline.current = kitchenFingerprints(normalizedCloud)
         const pending = readStoredKitchen('pending', session!.user.id)
         if (pending?.householdId === id) {
           const pendingTemplates = pending.mealPlanTemplates || []
@@ -340,13 +357,16 @@ function App() {
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
           setStaples(starterStaples.current)
-          await saveKitchenSnapshot(id, { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current, mealPlanTemplates: starterMealPlanTemplates.current })
+          const initialShared: CollaborativeKitchenSnapshot = { inventory: initialInventory, grocery: starterGrocery.current, stapleGroups: starterStapleGroups.current, staples: starterStaples.current, recipes: starterRecipes.current, mealPlan: starterMealPlan.current, mealPlanTemplates: starterMealPlanTemplates.current }
+          await saveKitchenSnapshot(id, initialShared)
+          syncBaselineSnapshot.current = initialShared
+          syncBaseline.current = kitchenFingerprints(initialShared)
           await markHouseholdInitialized(id)
         } else {
           const legacyInventory = normalizeLegacyInventory(cloud.inventory)
           const legacyGrocery = normalizeLegacyGrocery(cloud.grocery)
-          setInventory(collapseInventoryPresence(legacyInventory.items))
-          setGrocery(legacyGrocery.items)
+          setInventory(collapseInventoryPresence(normalizedCloud.inventory))
+          setGrocery(normalizedCloud.grocery)
           setStapleGroups(cloud.stapleGroups)
           setStaples(cloud.staples)
           setCustomRecipes(cloud.recipes)
@@ -521,8 +541,16 @@ function App() {
       applyingRemoteSnapshot.current = true
       syncRevision.current = message.revision
       const snapshot = message.snapshot
-      setInventory(collapseInventoryPresence(snapshot.inventory.map((item) => withExpirationDate(item))))
-      setGrocery(snapshot.grocery)
+      const shared: CollaborativeKitchenSnapshot = {
+        inventory: collapseInventoryPresence(normalizeLegacyInventory(snapshot.inventory).items.map((item) => withExpirationDate(item))),
+        grocery: normalizeLegacyGrocery(snapshot.grocery).items,
+        stapleGroups: snapshot.stapleGroups || [], staples: snapshot.staples || [],
+        recipes: snapshot.recipes || [], mealPlan: snapshot.mealPlan || [], mealPlanTemplates: snapshot.mealPlanTemplates || [],
+      }
+      syncBaselineSnapshot.current = shared
+      syncBaseline.current = kitchenFingerprints(shared)
+      setInventory(shared.inventory)
+      setGrocery(shared.grocery)
       setStapleGroups(snapshot.stapleGroups || [])
       setStaples(snapshot.staples || [])
       setCustomRecipes(snapshot.recipes || [])
@@ -560,9 +588,10 @@ function App() {
     }
     if (syncConflict.current) { setSyncState('conflict'); return }
     const forcedVersions = { ...forcedCollectionVersions.current }
+    const forcedCollections = pendingForcedCollections(forcedVersions)
     const dirtyCollections = [...new Set([
       ...changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current),
-      ...pendingForcedCollections(forcedVersions),
+      ...forcedCollections,
     ])]
     forceAllCollectionsSave.current = false
     const snapshot = { householdId, ...shared, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
@@ -571,6 +600,7 @@ function App() {
       return
     }
     const reservation = saveQueue.current.reserve()
+    const baselineSnapshot = syncBaselineSnapshot.current
     localChangesPending.current = true
     writeStoredKitchen('pending', session.user.id, snapshot)
     setSyncState(isOnline ? 'syncing' : 'offline')
@@ -585,7 +615,7 @@ function App() {
       }
       const result = await reservation.run(async () => {
         try {
-          await withRetry(() => saveKitchenSnapshot(householdId, shared, dirtyCollections))
+          await withRetry(() => saveKitchenSnapshot(householdId, shared, dirtyCollections, baselineSnapshot, forcedCollections))
         } finally {
           releaseSyncLease(localStorage, leaseKey, tabId.current)
         }
@@ -595,6 +625,7 @@ function App() {
         localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
         writeStoredKitchen('cache', session.user.id, snapshot)
         syncBaseline.current = acceptKitchenCollections(syncBaseline.current, fingerprints, dirtyCollections)
+        syncBaselineSnapshot.current = acceptKitchenSnapshot(syncBaselineSnapshot.current, shared, dirtyCollections)
         forcedCollectionVersions.current = acknowledgeForcedCollections(forcedCollectionVersions.current, forcedVersions)
         if (dirtyCollections.includes('mealPlanTemplates')) mealPlanTemplatesDirty.current = false
         localChangesPending.current = false
@@ -602,10 +633,8 @@ function App() {
         syncRevision.current = revision
         syncChannel.current?.postMessage({ type: 'kitchen-saved', senderId: tabId.current, revision, snapshot } satisfies KitchenSyncMessage)
         setSyncState('saved')
-        if (remoteRefreshPending.current) {
-          remoteRefreshPending.current = false
-          scheduleRemoteRefresh()
-        }
+        remoteRefreshPending.current = false
+        scheduleRemoteRefresh()
       } else {
         console.error(result.error instanceof Error ? result.error.message : String(result.error))
         setSyncState(navigator.onLine ? 'error' : 'offline')

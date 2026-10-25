@@ -1,6 +1,6 @@
 # Mise product roadmap
 
-Last reviewed: October 24, 2026
+Last reviewed: October 25, 2026
 
 This file is the source of truth for Mise's implementation order. Add new ideas here when they come up, even when work temporarily moves to another feature. Moving an item does not remove it from the roadmap; record the reason in the decision log.
 
@@ -15,7 +15,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 
 ## Current implementation order
 
-### 1. Effortless kitchen tracking — Validation
+### 1. Effortless kitchen tracking — In progress (validation)
 
 - [x] Replace measured kitchen stock with ingredient presence while keeping recipe and grocery quantities.
 - [x] Ask what ran out after cooking instead of deducting measured amounts.
@@ -23,7 +23,11 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Indicate grocery items newly added by another household member.
 - [x] Remember household icon choices and anonymously count confirmed catalog gaps.
 - [x] Reconcile household inventory, groceries, recipes, plans, staples, cooking history, and product memory through Supabase Realtime without rewriting unrelated collections.
-- [ ] Validate the complete signed-in two-member flow after applying the Supabase migration.
+- [x] Save row-level collection deltas so simultaneous household changes preserve unrelated remote additions and edits instead of replacing whole collections.
+- [x] Make Undo reliable for legacy and new kitchen, grocery, recipe, meal-plan, template, and staple records, including delayed cloud saves and realtime reconciliation.
+- [x] Normalize legacy inventory and grocery rows during hydration while preserving existing IDs and assigning stable IDs only when missing.
+- [x] Resolve icons in household mapping, built-in catalog, stored legacy icon, and generic fallback order; backfill confirmed legacy custom icons into household mappings.
+- [ ] Validate the complete signed-in two-member flow end to end, including delayed Undo, offline recovery, and realtime changes from the other member.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
 
@@ -104,6 +108,7 @@ These ideas should be considered during related feature work but do not override
 - Search that can find ingredients, recipes, planned meals, and grocery items from one place.
 - Source-aware grocery provenance showing which recipe, recommendation, staple, or meal-plan entry requested each item; required before additive multi-recipe merging can be completely reliable.
 - Household activity filters so users can quickly find inventory, meal-plan, or grocery changes.
+- Household icon overrides for recognized catalog foods, with a clear “Reset to Mise default” action; currently learned mappings are created only for unknown foods.
 - Export and account-data deletion controls before expanding beyond private beta.
 
 ## Parked to keep the app free
@@ -126,8 +131,13 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 - Barcode-ready product data, mobile scanner, Open Food Facts lookup, scan queue, household memory, and failure recovery.
 - Single-item staple entry with food suggestions, alongside the existing bulk workflow.
 - A shared grouped unit picker across inventory, groceries, staples, recipes, Smart Entry review, and barcode review, with custom-unit support.
+- Persistent, cloud-race-safe Undo for destructive inventory, grocery, recipe, meal-plan, template, and staple actions.
+- Legacy record normalization and household icon backfill without a Supabase migration.
 
 ## Decision log
+
+- **October 25, 2026:** Shared-kitchen saves moved from whole-collection replacement to baseline-aware row deltas so concurrent additions, offline changes, and remote edits can reconcile without deleting unrelated household data.
+- **October 25, 2026:** Undo was hardened for both legacy and newly created records using per-collection forced-save generations. Household mappings remain the highest icon priority, while an explicit override flow for recognized catalog foods is queued as a UX candidate rather than changing the catalog automatically.
 
 - **October 24, 2026:** Receipt and Smart Entry refinement was parked at the user's request. Work remains recorded here and will resume after higher-priority shared-kitchen and daily-use validation.
 

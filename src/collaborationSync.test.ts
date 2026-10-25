@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptKitchenCollections, acknowledgeForcedCollections, changedKitchenCollections, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
+import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, changedSnapshotRows, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, removedSnapshotRowIds, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
 
 const empty: CollaborativeKitchenSnapshot = {
   inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [],
@@ -39,6 +39,41 @@ describe('household collection synchronization', () => {
     ] }
     const reordered = { ...first, inventory: [...first.inventory].reverse() }
     expect(changedKitchenCollections(kitchenFingerprints(reordered), kitchenFingerprints(first))).toEqual([])
+  })
+
+  it('preserves unrelated concurrent additions by saving only local row deltas', () => {
+    const baseline = [{ id: 'milk', name: 'Milk' }]
+    const local = [...baseline, { id: 'oats', name: 'Oats' }]
+    const remote = [...baseline, { id: 'eggs', name: 'Eggs' }]
+    const upserts = changedSnapshotRows(local, baseline)
+    const merged = [...remote.filter((row) => !upserts.some((upsert) => upsert.id === row.id)), ...upserts]
+    expect(merged.map((row) => row.id).sort()).toEqual(['eggs', 'milk', 'oats'])
+    expect(removedSnapshotRowIds(local, baseline)).toEqual([])
+  })
+
+  it('does not overwrite a remote edit when the same local row was unchanged', () => {
+    const baseline = [{ id: 'milk', name: 'Milk' }]
+    const local = [...baseline, { id: 'oats', name: 'Oats' }]
+    expect(changedSnapshotRows(local, baseline)).toEqual([{ id: 'oats', name: 'Oats' }])
+  })
+
+  it('deletes only rows removed from the local baseline', () => {
+    const baseline = [{ id: 'milk' }, { id: 'oats' }]
+    const local = [{ id: 'oats' }]
+    expect(removedSnapshotRowIds(local, baseline)).toEqual(['milk'])
+  })
+
+  it('forces unchanged restored rows to upsert after an older deletion', () => {
+    const rows = [{ id: 'legacy-row', name: 'Legacy row' }]
+    expect(changedSnapshotRows(rows, rows)).toEqual([])
+    expect(changedSnapshotRows(rows, rows, true)).toEqual(rows)
+  })
+
+  it('advances only successfully saved collections in the baseline snapshot', () => {
+    const baseline = { ...empty, inventory: [{ id: 'milk', name: 'Milk', emoji: '🥛', quantity: 1, unit: 'item', category: 'Dairy' as const, location: 'Fridge' as const, expiresIn: 5 }] }
+    const current = { ...baseline, grocery: [{ id: 'oats', name: 'Oats', amount: 1, unit: 'bag', checked: false }] }
+    expect(acceptKitchenSnapshot(baseline, current, ['grocery'])).toEqual(current)
+    expect(acceptKitchenSnapshot(baseline, { ...current, inventory: [] }, ['grocery']).inventory).toEqual(baseline.inventory)
   })
 
   it('keeps a newer forced restore pending when an older save finishes', () => {
