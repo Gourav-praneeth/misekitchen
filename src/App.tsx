@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowRight, ArrowUp, BellRing, Bookmark, BookmarkCheck, CalendarDays, Camera, Check, ChefHat, ChevronLeft, ChevronRight, CirclePlus, Clock3, Cloud, CookingPot, Copy, Flashlight,
-  ExternalLink, House, KeyRound, Leaf, LogOut, Mail, MessageSquareText, Minus, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
+  ExternalLink, House, KeyRound, Leaf, LogOut, Mail, MessageSquareText, Minus, MoreHorizontal, PackageOpen, Pencil, Plus, RefreshCw, Search, Send,
   Settings as SettingsIcon, ShieldCheck, ShoppingBasket, Sparkles, Trash2, TriangleAlert, Undo2, UserPlus, UserRound, UsersRound, WifiOff, X,
 } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
@@ -1148,22 +1148,46 @@ function RecommendationPlanner({ recipe, onClose, onPlan }: { recipe: RecipeMatc
 
 function Kitchen({ inventory, category, setCategory, onAdd, onSmartAdd, onEdit, onRestock, onDelete }: { inventory: InventoryItem[]; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void; onDelete: (item: InventoryItem) => void }) {
   const [query, setQuery] = useState('')
+  const [openActions, setOpenActions] = useState<string | null>(null)
   const filtered = inventory.filter((item) => (category === 'All' || item.category === category) && normalize(item.name).includes(normalize(query)))
+  const categoryCounts = Object.fromEntries(categories.map((option) => [option, inventory.filter((item) => item.category === option).length])) as Record<Category, number>
+  const attentionCount = inventory.filter((item) => {
+    const days = daysUntilExpiration(item)
+    return days !== null && days <= 3
+  }).length
+  const hasFilters = category !== 'All' || query.trim().length > 0
+
+  useEffect(() => {
+    if (!openActions) return
+    const closeActions = () => setOpenActions(null)
+    document.addEventListener('pointerdown', closeActions)
+    return () => document.removeEventListener('pointerdown', closeActions)
+  }, [openActions])
+
+  function clearFilters() {
+    setQuery('')
+    setCategory('All')
+  }
+
   return <section className="inner-page kitchen-page">
-    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>Keep a light touch on what you have, where it lives, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
-    <div className="toolbar"><label><Search size={17} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs">{(['All', ...categories] as const).map((option) => <button className={category === option ? 'active' : ''} onClick={() => setCategory(option)} key={option}>{option}</button>)}</div></div>
-    <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Availability</span><span>Stored in</span><span>Freshness</span><span /></div>{filtered.map((item) => <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}<span className="mobile-item-location"> · {item.location}</span></small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions"><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button edit" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`} title="Edit ingredient"><Pencil /></button><button className="icon-button delete" onClick={() => onDelete(item)} aria-label={`Delete ${item.name}`} title="Delete ingredient"><Trash2 /></button></div></div>)}</div>
-    {!filtered.length && <Empty title="Nothing found" copy="Try another search or add a new ingredient." />}
+    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>See what is at home, where it is stored, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
+    <div className="toolbar kitchen-toolbar"><label><Search size={17} /><input aria-label="Search kitchen ingredients" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs" aria-label="Filter ingredients by category">{(['All', ...categories] as const).map((option) => { const count = option === 'All' ? inventory.length : categoryCounts[option]; return <button className={category === option ? 'active' : ''} aria-pressed={category === option} onClick={() => setCategory(option)} key={option}><span>{option}</span><em>{count}</em></button> })}</div></div>
+    <div className="kitchen-result-summary" aria-live="polite"><span><strong>{filtered.length}</strong> {filtered.length === 1 ? 'ingredient' : 'ingredients'} shown</span>{attentionCount > 0 && <span className="attention-summary"><TriangleAlert /> {attentionCount} {attentionCount === 1 ? 'needs' : 'need'} attention</span>}</div>
+    {filtered.length > 0 ? <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Status</span><span>Stored in</span><span>Freshness</span><span>Actions</span></div>{filtered.map((item) => {
+      const showLocation = normalize(item.category) !== normalize(item.location)
+      const menuOpen = openActions === item.id
+      return <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}{showLocation && <span className="mobile-item-location"> · {item.location}</span>}</small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions" onPointerDown={(event) => event.stopPropagation()}><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button more-actions" onClick={() => setOpenActions((current) => current === item.id ? null : item.id)} aria-label={`More actions for ${item.name}`} aria-haspopup="menu" aria-expanded={menuOpen}><MoreHorizontal /></button>{menuOpen && <div className="item-action-menu" role="menu"><button role="menuitem" onClick={() => { setOpenActions(null); onEdit(item) }}><Pencil /> Edit ingredient</button><button className="delete" role="menuitem" onClick={() => { setOpenActions(null); onDelete(item) }}><Trash2 /> Delete from kitchen</button></div>}</div></div>
+    })}</div> : <div className="kitchen-empty panel"><PackageOpen /><strong>{inventory.length ? 'No matching ingredients' : 'Your kitchen is ready to fill'}</strong><p>{inventory.length ? 'Clear the search or category filter to see everything at home.' : 'Add the foods you have once, then simply mark them for restocking when they run out.'}</p><div>{hasFilters && <button className="secondary-button" onClick={clearFilters}>Clear filters</button>}<button className="primary-button" onClick={onAdd}><CirclePlus /> Add ingredients</button></div></div>}
   </section>
 }
 
 function Freshness({ item }: { item: InventoryItem }) {
   const days = daysUntilExpiration(item)
-  if (days === null) return <span className="freshness neutral">Shelf stable</span>
-  if (days < 0) return <span className="freshness danger">{Math.abs(days)} {Math.abs(days) === 1 ? 'day' : 'days'} past use-by</span>
+  if (days === null) return <span className="freshness neutral">No use-by date</span>
+  if (days < 0) return <span className="freshness danger">Expired · {Math.abs(days)}d ago</span>
   if (days <= 1) return <span className="freshness danger">Use {days === 0 ? 'today' : 'tomorrow'}</span>
-  if (days <= 3) return <span className="freshness soon">{days} days left</span>
-  return <span className="freshness fresh">Fresh for {days} days</span>
+  if (days <= 3) return <span className="freshness soon">Use soon · {days}d</span>
+  return <span className="freshness fresh">Fresh · {days}d</span>
 }
 
 function Recipes({ recipes, guidance, cookingHistory, inventory, preferences, accessToken, savedExternalIds, setSelectedRecipe, onRemoveHistory, onAdd, onSaveDiscovered, onAddToGrocery, onRecipeAction, onPlanRecipe, onOpenKitchen }: { recipes: RecipeMatch[]; guidance: RecommendationGuidance | null; cookingHistory: CookingHistoryEntry[]; inventory: InventoryItem[]; preferences: FoodPreferences; accessToken: string; savedExternalIds: number[]; setSelectedRecipe: (recipe: RecipeMatch) => void; onRemoveHistory: (entry: CookingHistoryEntry) => void; onAdd: () => void; onSaveDiscovered: (preview: DiscoverRecipe, details: DiscoverRecipeDetails) => void; onAddToGrocery: (items: GroceryItem[]) => void; onRecipeAction: (recipe: RecipeMatch) => void; onPlanRecipe: (recipe: RecipeMatch) => void; onOpenKitchen: () => void }) {

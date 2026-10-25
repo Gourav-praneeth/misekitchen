@@ -138,6 +138,79 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 @media (max-width: 760px) { .auth-page { display: block; background: #294638; padding-top: 110px; }.auth-story { min-height: auto; padding: 25px 24px 34px; }.auth-copy, .auth-footnote { display: none; }.auth-form-wrap { min-height: calc(100vh - 110px); align-items: start; padding: 30px 22px 50px; border-radius: 25px 25px 0 0; background: var(--paper); }.sync-state { display: none; }.modal input, .modal select, .modal textarea, .toolbar input, .quick-add input, .settings-card input, .settings-card select, .auth-form input { font-size: 16px; } }
 @media (max-width: 700px) { .settings-grid { grid-template-columns: 1fr; }.settings-card:last-child { grid-column: auto; }.settings-stats { grid-template-columns: 1fr; }.settings-feedback-card { align-items: stretch; flex-direction: column; }.settings-feedback-card .secondary-button { width: 100%; }.planner-page .page-title .primary-button { width: 100%; }.week-toolbar { padding: 9px; }.week-toolbar strong { font-size: 15px; }.week-grid { grid-template-columns: repeat(7, minmax(220px, 82vw)); scroll-snap-type: x mandatory; }.day-card { min-height: 300px; scroll-snap-align: start; }.planner-summary { align-items: stretch; flex-direction: column; }.planner-summary .secondary-button { width: 100%; }.meal-picker { padding: 22px 18px; }.meal-picker-list { max-height: 55vh; } }
 @media (max-width: 700px) { .meal-reminder-panel { padding: 16px; }.meal-reminder-heading { align-items: flex-start; }.meal-reminder-heading .text-button { display: none; }.meal-reminder-list { grid-template-columns: 1fr; }.meal-reminder-list > button { grid-template-columns: 38px minmax(0, 1fr) auto; }.reminder-time-grid { grid-template-columns: 1fr 1fr; } }
+
+/* My Kitchen interaction polish */
+.kitchen-page .page-title { margin-bottom: 26px; }
+.kitchen-toolbar { align-items: stretch; margin-bottom: 10px; }
+.kitchen-toolbar > label { flex: 0 1 320px; min-height: 42px; }
+.kitchen-toolbar .filter-tabs { align-items: center; }
+.kitchen-toolbar .filter-tabs button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.kitchen-toolbar .filter-tabs em { min-width: 18px; padding: 2px 5px; border-radius: 999px; background: rgba(49,92,69,.08); color: #68766d; font-size: 9px; font-style: normal; font-variant-numeric: tabular-nums; text-align: center; }
+.kitchen-toolbar .filter-tabs button.active em { background: #dfe9dc; color: var(--green); }
+.kitchen-result-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 30px; margin: 0 2px 8px; color: #748077; font-size: 11px; }
+.kitchen-result-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.attention-summary { display: inline-flex; align-items: center; gap: 5px; color: #9b5b39; font-weight: 700; }
+.attention-summary svg { width: 13px; height: 13px; }
+.presence-table { overflow: visible; border-radius: 12px; box-shadow: none; }
+.presence-table .table-head, .presence-table .inventory-row { grid-template-columns: minmax(220px, 2fr) minmax(100px, .8fr) minmax(85px, .65fr) minmax(116px, .9fr) minmax(140px, 1fr); gap: 14px; padding-right: 16px; padding-left: 16px; }
+.presence-table .table-head { padding-top: 11px; padding-bottom: 11px; color: #737e76; font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.presence-table .table-head span:last-child { text-align: right; }
+.presence-table .inventory-row { min-height: 64px; transition: background-color .15s ease; }
+.presence-table .inventory-row:hover { background: #f8f8f3; }
+.presence-table .ingredient-cell { min-width: 0; }
+.presence-table .ingredient-cell.edit-trigger { width: 100%; }
+.presence-table .ingredient-cell > span { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; }
+.presence-table .ingredient-cell strong { font-size: 13px; }
+.presence-table .ingredient-cell small { margin-top: 2px; font-size: 10px; }
+.presence-table .freshness { white-space: nowrap; }
+.presence-table .row-actions { position: relative; gap: 6px; }
+.presence-table .row-actions .restock { display: inline-flex; width: auto; min-width: 82px; height: 32px; padding: 0 10px; gap: 6px; border: 1px solid #cbd7ca; background: #edf2e9; color: var(--green); opacity: 1; }
+.presence-table .row-actions .restock:hover { border-color: #aec0ae; background: #e4ede2; }
+.presence-table .row-actions .restock-label { display: inline; font-size: 10px; font-weight: 800; }
+.presence-table .row-actions .more-actions { width: 32px; height: 32px; border: 1px solid transparent; color: #637168; }
+.presence-table .row-actions .more-actions:hover, .presence-table .row-actions .more-actions[aria-expanded="true"] { border-color: #d5dbd3; background: #f0f1eb; }
+.item-action-menu { position: absolute; z-index: 6; top: 38px; right: 0; display: grid; min-width: 178px; padding: 5px; border: 1px solid #d7dcd4; border-radius: 10px; background: var(--paper); box-shadow: 0 10px 26px rgba(37,53,44,.14); }
+.item-action-menu button { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font-size: 11px; font-weight: 700; text-align: left; cursor: pointer; }
+.item-action-menu button:hover, .item-action-menu button:focus-visible { background: #eef1ea; outline: none; }
+.item-action-menu button.delete { color: #9f543d; }
+.item-action-menu button.delete:hover, .item-action-menu button.delete:focus-visible { background: #f6e9e3; }
+.item-action-menu svg { width: 14px; height: 14px; }
+.kitchen-empty { display: grid; justify-items: start; padding: 30px; box-shadow: none; }
+.kitchen-empty > svg { width: 26px; height: 26px; margin-bottom: 14px; color: #708078; }
+.kitchen-empty > strong { font: 500 21px 'Fraunces', serif; }
+.kitchen-empty > p { max-width: 520px; margin: 7px 0 18px; color: #748078; font-size: 12px; line-height: 1.55; }
+.kitchen-empty > div { display: flex; gap: 8px; }
+.kitchen-empty .primary-button, .kitchen-empty .secondary-button { min-height: 40px; }
+.kitchen-empty svg { width: 16px; }
+.kitchen-page button:focus-visible, .kitchen-page input:focus-visible { outline: 3px solid rgba(49,92,69,.22); outline-offset: 2px; }
+
+@media (max-width: 700px) {
+  .kitchen-page .page-title { margin-bottom: 20px; }
+  .kitchen-page .page-title p { max-width: 330px; }
+  .kitchen-toolbar { gap: 10px; margin-bottom: 6px; }
+  .kitchen-toolbar > label { flex-basis: auto; min-height: 44px; }
+  .kitchen-toolbar .filter-tabs { width: 100%; padding: 3px; overflow-x: auto; scrollbar-width: none; }
+  .kitchen-toolbar .filter-tabs::-webkit-scrollbar { display: none; }
+  .kitchen-toolbar .filter-tabs button { flex: 0 0 auto; min-height: 34px; padding: 7px 9px; }
+  .kitchen-result-summary { min-height: 28px; margin-bottom: 7px; font-size: 11px; }
+  .presence-table .inventory-row { position: relative; grid-template-columns: minmax(0, 1fr) auto; gap: 11px 10px; margin-bottom: 8px; padding: 13px 13px 10px; }
+  .presence-table .inventory-row:hover { background: var(--paper); }
+  .presence-table .ingredient-cell.edit-trigger { grid-column: 1; grid-row: 1; }
+  .presence-table .ingredient-cell > span { width: 40px; height: 40px; }
+  .presence-table .ingredient-cell strong { font-size: 14px; }
+  .presence-table .ingredient-cell small { font-size: 11px; }
+  .presence-table .freshness { grid-column: 2; grid-row: 1; align-self: center; justify-self: end; padding: 5px 7px; font-size: 10px; }
+  .presence-table .row-actions { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; padding-top: 9px; border-top: 1px solid #ebece6; }
+  .presence-table .row-actions .icon-button { min-height: 36px; }
+  .presence-table .row-actions .restock { min-width: 96px; padding: 0 12px; }
+  .presence-table .row-actions .restock-label { font-size: 11px; }
+  .presence-table .row-actions .more-actions { width: 40px; height: 36px; border-color: #e1e4dc; background: #f7f6f1; }
+  .item-action-menu { top: auto; right: 0; bottom: 42px; min-width: 190px; }
+  .item-action-menu button { min-height: 44px; font-size: 12px; }
+  .kitchen-empty { padding: 24px 20px; }
+  .kitchen-empty > div { width: 100%; flex-direction: column; }
+  .kitchen-empty .primary-button, .kitchen-empty .secondary-button { width: 100%; }
+}
 @media (max-width: 700px) { .shared-kitchen-card, .preferences-card { grid-column: auto; }.shared-kitchen-layout { grid-template-columns: 1fr; }.kitchen-name-form { grid-template-columns: 1fr; }.kitchen-name-form .secondary-button, .shared-kitchen-actions .secondary-button { width: 100%; } }
 @media (max-width: 700px) { .inventory-table { overflow: visible; border: 0; background: transparent; box-shadow: none; }.table-head { display: none; }.inventory-row { min-width: 0; min-height: 0; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px 8px; margin-bottom: 10px; padding: 14px; border: 1px solid #dddfd7; border-radius: 14px; background: var(--paper); box-shadow: 0 5px 18px rgba(37,53,44,.035); }.ingredient-cell.edit-trigger { grid-column: 1 / 3; min-width: 0; }.ingredient-cell p { min-width: 0; }.ingredient-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.quantity-control { grid-column: 3; justify-content: flex-end; }.location-pill { grid-column: 1; grid-row: 2; margin-left: 0; }.freshness { grid-column: 2; grid-row: 2; align-self: center; justify-self: start; }.row-actions { grid-column: 3; grid-row: 2; justify-content: flex-end; padding: 0; border: 0; }.row-actions .icon-button { width: 32px; height: 30px; border: 1px solid #e1e3dc; background: #f7f6f1; opacity: 1; } }
 
@@ -208,7 +281,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .availability-pill { display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 6px 9px; border-radius: 999px; background: #e7f0e5; color: var(--green); font-size: 9px; font-weight: 800; }.availability-pill svg { width: 12px; height: 12px; }.nav-new-badge { padding: 3px 7px; border-radius: 10px; background: #f0c86e; color: #294638; font-size: 9px; white-space: nowrap; }.new-grocery-banner { display: flex; align-items: center; gap: 11px; margin: 0 0 14px; padding: 12px 14px; border: 1px solid #bdd0ba; border-radius: 12px; background: #e8f1e4; color: var(--green); }.new-grocery-banner > svg { width: 18px; }.new-grocery-banner p { flex: 1; margin: 0; }.new-grocery-banner strong, .new-grocery-banner small { display: block; }.new-grocery-banner strong { font-size: 11px; }.new-grocery-banner small { margin-top: 3px; color: #708078; font-size: 9px; }.new-grocery-banner > span { padding: 4px 8px; border-radius: 999px; background: var(--green); color: white; font-size: 8px; font-weight: 800; text-transform: uppercase; }.grocery-row.is-new { background: #f3f7ef; box-shadow: inset 3px 0 #7f9f82; }.grocery-new-pill { display: inline-flex; margin-left: 7px; padding: 2px 6px; border-radius: 999px; background: #dcead8; color: var(--green); font-size: 7px; font-style: normal; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
 .grocery-add-review { width: min(760px, 100%); }.grocery-review-list { display: grid; gap: 9px; }.grocery-review-list article { display: grid; grid-template-columns: 42px minmax(170px, 1fr) 90px 120px 32px; align-items: end; gap: 8px; padding: 11px; border: 1px solid #dde1d8; border-radius: 12px; background: #faf9f5; }.grocery-review-list article > label { margin: 0; }.grocery-review-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: #efede5; font-size: 21px; }.grocery-review-list article > small { grid-column: 2 / -1; display: flex; align-items: center; gap: 5px; color: #8a6d2d; font-size: 8px; }.grocery-review-list article > small svg { width: 11px; }.grocery-review-add { margin-top: 10px; }.grocery-review-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; padding-top: 13px; border-top: 1px solid #e0e3dc; }.grocery-review-footer > span { color: #758178; font-size: 10px; }.grocery-review-footer .submit-button { width: auto; min-width: 210px; margin: 0; }
 .cooking-completion { width: min(690px, 100%); }.cooking-restock-list { display: grid; gap: 8px; }.cooking-restock-list article { display: grid; grid-template-columns: 34px 38px minmax(150px, 1fr) 80px 110px; align-items: center; gap: 9px; padding: 10px; border: 1px solid #dfe2da; border-radius: 12px; background: #faf9f5; }.cooking-restock-list article.selected { border-color: #9db69f; background: #edf3e9; }.restock-check { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #b8c9ba; border-radius: 9px; background: white; color: var(--green); cursor: pointer; }.restock-check svg { width: 14px; }.cooking-restock-list article > span { font-size: 21px; }.cooking-restock-list p { margin: 0; }.cooking-restock-list strong, .cooking-restock-list small { display: block; }.cooking-restock-list strong { font-size: 11px; }.cooking-restock-list small { margin-top: 3px; color: #7e8981; font-size: 8px; }.cooking-restock-list input, .cooking-restock-list select { min-width: 0; padding: 8px; border: 1px solid #d6dbd3; border-radius: 8px; background: white; }.presence-fields { grid-template-columns: 1fr 1fr !important; }
-@media (max-width: 700px) { .nav-new-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; padding: 0; overflow: hidden; color: transparent; }.nav-item { position: relative; }.kitchen-page .page-title { margin-bottom: 22px; }.kitchen-page .page-title h1 { font-size: 30px; }.kitchen-page .page-title .title-actions { display: none; }.presence-table .inventory-row { grid-template-columns: minmax(0, 1fr) auto; gap: 11px 12px; padding: 14px 14px 12px; border-radius: 12px; box-shadow: none; }.presence-table .ingredient-cell.edit-trigger { grid-column: 1 / -1; }.presence-table .ingredient-cell > span { width: 42px; height: 42px; border-radius: 10px; }.presence-table .ingredient-cell strong { font-size: 14px; }.presence-table .ingredient-cell small { margin-top: 3px; font-size: 11px; }.mobile-item-location { display: inline; }.presence-table .availability-pill, .presence-table .location-pill { display: none; }.presence-table .freshness { grid-column: 1; grid-row: 2; align-self: center; padding: 5px 8px; font-size: 11px; }.presence-table .row-actions { grid-column: 2; grid-row: 2; gap: 6px; }.presence-table .row-actions .icon-button { width: 34px; height: 34px; border: 0; background: transparent; }.presence-table .row-actions .restock { display: flex; width: auto; padding: 0 10px; gap: 6px; border: 1px solid #cbd7ca; background: #edf2e9; color: var(--green); }.presence-table .row-actions .restock-label { display: inline; font-size: 11px; font-weight: 800; }.grocery-review-list article { grid-template-columns: 38px 1fr 32px; align-items: end; }.grocery-review-list article > label:nth-of-type(1) { grid-column: 2; }.grocery-review-list article > label:nth-of-type(2) { grid-column: 1 / 3; }.grocery-review-list article > label:nth-of-type(3) { grid-column: 1 / 3; }.grocery-review-list article > button { grid-column: 3; grid-row: 1; }.grocery-review-list article > small { grid-column: 1 / -1; }.grocery-review-footer { align-items: stretch; flex-direction: column; }.grocery-review-footer .submit-button { width: 100%; }.cooking-restock-list article { grid-template-columns: 32px 32px minmax(0, 1fr); }.cooking-restock-list article input, .cooking-restock-list article select { grid-column: 1 / -1; }.new-grocery-banner { align-items: flex-start; } }
+@media (max-width: 700px) { .nav-new-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; padding: 0; overflow: hidden; color: transparent; }.nav-item { position: relative; }.kitchen-page .page-title h1 { font-size: 30px; }.kitchen-page .page-title .title-actions { display: none; }.mobile-item-location { display: inline; }.presence-table .availability-pill, .presence-table .location-pill { display: none; }.grocery-review-list article { grid-template-columns: 38px 1fr 32px; align-items: end; }.grocery-review-list article > label:nth-of-type(1) { grid-column: 2; }.grocery-review-list article > label:nth-of-type(2) { grid-column: 1 / 3; }.grocery-review-list article > label:nth-of-type(3) { grid-column: 1 / 3; }.grocery-review-list article > button { grid-column: 3; grid-row: 1; }.grocery-review-list article > small { grid-column: 1 / -1; }.grocery-review-footer { align-items: stretch; flex-direction: column; }.grocery-review-footer .submit-button { width: 100%; }.cooking-restock-list article { grid-template-columns: 32px 32px minmax(0, 1fr); }.cooking-restock-list article input, .cooking-restock-list article select { grid-column: 1 / -1; }.new-grocery-banner { align-items: flex-start; } }
 .meal-template-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 9px; padding: 13px; border-radius: 12px; background: #edf2e9; }
 .meal-template-create label { margin: 0; }
 .meal-template-create button, .template-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 39px; padding: 9px 12px; border: 1px solid #b8cab9; border-radius: 9px; background: var(--green); color: white; font-size: 9px; font-weight: 800; cursor: pointer; }

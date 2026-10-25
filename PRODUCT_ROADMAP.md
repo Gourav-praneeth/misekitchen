@@ -27,6 +27,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Make Undo reliable for legacy and new kitchen, grocery, recipe, meal-plan, template, and staple records, including delayed cloud saves and realtime reconciliation.
 - [x] Normalize legacy inventory and grocery rows during hydration while preserving existing IDs and assigning stable IDs only when missing.
 - [x] Resolve icons in household mapping, built-in catalog, stored legacy icon, and generic fallback order; backfill confirmed legacy custom icons into household mappings.
+- [x] Polish My Kitchen interactions with compact freshness labels, category counts, accessible search, non-repeating metadata, a focused Restock action, and an overflow menu for edit/delete.
 - [ ] Validate the complete signed-in two-member flow end to end, including delayed Undo, offline recovery, and realtime changes from the other member.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
@@ -138,6 +139,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 - **October 25, 2026:** Shared-kitchen saves moved from whole-collection replacement to baseline-aware row deltas so concurrent additions, offline changes, and remote edits can reconcile without deleting unrelated household data.
 - **October 25, 2026:** Undo was hardened for both legacy and newly created records using per-collection forced-save generations. Household mappings remain the highest icon priority, while an explicit override flow for recognized catalog foods is queued as a UX candidate rather than changing the catalog automatically.
+- **October 25, 2026:** My Kitchen kept its existing Mise visual identity while shifting mobile rows to a clearer working-list pattern: concise status, one visible Restock action, and secondary edit/delete actions in an overflow menu.
 
 - **October 24, 2026:** Receipt and Smart Entry refinement was parked at the user's request. Work remains recorded here and will resume after higher-priority shared-kitchen and daily-use validation.
 
