@@ -340,7 +340,6 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .grocery-utility-menu button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font-size: 11px; font-weight: 700; text-align: left; cursor: pointer; }
 .grocery-utility-menu button:hover, .grocery-utility-menu button:focus-visible { background: #eef1ea; outline: none; }
 .grocery-utility-menu svg { width: 14px; }
-.mobile-paste-action { display: none !important; }
 .grocery-add-panel { margin-bottom: 18px; padding: 0; overflow: hidden; }
 .grocery-add-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 17px 18px 0; }
 .grocery-add-panel h2 { margin: 0; font: 600 18px 'Fraunces', serif; }
@@ -399,10 +398,8 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .grocery-page .title-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 46px; gap: 7px; }
   .grocery-page .title-actions > button, .grocery-page .title-actions .grocery-utility-wrap, .grocery-page .title-actions .grocery-more-button { width: 100%; }
   .grocery-page .title-actions .grocery-more-button { min-width: 0; height: 44px; padding: 0; }
-  .grocery-paste-action { display: none !important; }
   .grocery-utility-menu { position: fixed; top: auto; right: 16px; bottom: 92px; left: 16px; min-width: 0; padding: 7px; }
   .grocery-utility-menu button { min-height: 46px; font-size: 12px; }
-  .mobile-paste-action { display: flex !important; }
   .store-mode .grocery-primary-actions { grid-template-columns: 1fr; }
   .grocery-add-panel > header { padding: 15px 15px 0; }
   .grocery-add { grid-template-columns: 1fr; }
