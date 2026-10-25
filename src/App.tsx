@@ -16,6 +16,7 @@ import { expirationWarning, suggestedExpirationDate, type FreshnessState } from 
 import { daysUntilDate, daysUntilExpiration, expirationDateFromDays, withExpirationDate } from './freshness'
 import { foodCatalog, getFoodIntelligence } from './foodCatalog'
 import { addOrUpdateStaple, groceryFromStaples, moveStaple, moveStapleGroup, orderedStapleGroups, orderedStaples } from './groceryStaples'
+import { cleanGroceryReviewItems, groceryReviewStatuses, isValidGroceryReviewItem } from './groceryReview'
 import { inviteCodeIsValid, normalizeInviteCode } from './household'
 import { legacyFoodMappings, normalizeLegacyGrocery, normalizeLegacyInventory, resolveGroceryPresentation, resolveInventoryPresentation } from './legacyCompatibility'
 import { groceryCategory, groceryEmoji, groceryItemsFromText, inventoryItemFromGrocery, mergeGroceryItems, mergeInventoryItems, purchasedGroceryAmount } from './inventoryIntelligence'
@@ -48,7 +49,7 @@ type ToastState = { message: string; undo?: () => void }
 type UndoNotice = (message: string, undo: () => void, restoredMessage?: string, collections?: KitchenCollection[]) => void
 type GroceryPurchaseDraft = GroceryItem & { purchase: NonNullable<GroceryItem['purchase']> }
 type GroceryAddSource = 'recipe' | 'recommendation' | 'meal plan' | 'Discover' | 'staples' | 'bulk add' | 'restock'
-type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource }
+type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource; onComplete?: () => void }
 type CookingDraft = { recipe: RecipeMatch; scale: number }
 type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
@@ -860,9 +861,9 @@ function App() {
     notify(`${items.length} item${items.length === 1 ? '' : 's'} added to your grocery list`)
   }
 
-  function reviewGrocery(items: GroceryItem[], source: GroceryAddSource = 'recipe') {
+  function reviewGrocery(items: GroceryItem[], source: GroceryAddSource = 'recipe', onComplete?: () => void) {
     if (!items.length) return
-    setGroceryReview({ items: items.map((item) => ({ ...item, checked: false })), source })
+    setGroceryReview({ items: items.map((item) => ({ ...item, checked: false })), source, onComplete })
   }
 
   function cookRecipe(recipe: RecipeMatch, scale = 1) {
@@ -1042,7 +1043,7 @@ function App() {
       {recipeEditorOpen && <RecipeEditor inventory={inventory.map((item) => ({ ...item, unit: getFoodIntelligence(item.name)?.profile.defaultUnit || 'item' }))} initialRecipe={editingRecipe || undefined} onClose={() => { setRecipeEditorOpen(false); setEditingRecipe(null) }} onSave={saveCustomRecipe} />}
       {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} onEdit={selectedRecipe.source === 'user' ? () => { setEditingRecipe(selectedRecipe); setSelectedRecipe(null); setRecipeEditorOpen(true) } : undefined} onDelete={() => void deleteRecipe(selectedRecipe)} />}
       {planningRecipe && <RecommendationPlanner recipe={planningRecipe} onClose={() => setPlanningRecipe(null)} onPlan={(date, mealSlot, servings) => planRecommendedRecipe(planningRecipe, date, mealSlot, servings)} />}
-      {groceryReview && <GroceryAddReview request={groceryReview} existing={grocery} mappings={foodMappings} onClose={() => setGroceryReview(null)} onConfirm={(items) => { commitGrocery(items); setGroceryReview(null) }} />}
+      {groceryReview && <GroceryAddReview request={groceryReview} existing={grocery} mappings={foodMappings} onClose={() => setGroceryReview(null)} onConfirm={(items) => { commitGrocery(items); groceryReview.onComplete?.(); setGroceryReview(null) }} />}
       {cookingDraft && <CookingCompletion recipe={cookingDraft.recipe} scale={cookingDraft.scale} inventory={inventory} onClose={() => setCookingDraft(null)} onComplete={(items) => completeCooking(cookingDraft.recipe, cookingDraft.scale, items)} />}
       {toast && <div className={`toast${toast.undo ? ' undo-toast' : ''}`} role="status" aria-live="polite"><Check size={17} /><span>{toast.message}</span>{toast.undo && <><button className="toast-undo" onClick={toast.undo}><Undo2 size={14} /> Undo</button><button className="toast-dismiss" onClick={() => setToast(null)} aria-label="Dismiss Undo message"><X size={14} /></button></>}</div>}
     </div>
@@ -1053,13 +1054,14 @@ function NavButton({ active, icon, label, badge, newBadge, className = '', onCli
   return <button className={`nav-item${active ? ' active' : ''}${className ? ` ${className}` : ''}`} onClick={onClick} aria-label={label}>{icon}<span>{label}</span>{newBadge ? <b className="nav-new-badge">{newBadge} new</b> : badge !== undefined && <em>{badge}</em>}</button>
 }
 
-function NumberField({ value, onValueChange, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & { value: number; onValueChange: (value: number) => void }) {
+function NumberField({ value, onValueChange, onEmpty, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & { value: number; onValueChange: (value: number) => void; onEmpty?: () => void }) {
   const [draft, setDraft] = useState<string | null>(null)
 
   return <input {...props} type="number" value={draft ?? String(value)} onChange={(event) => {
     const next = event.target.value
     setDraft(next)
-    if (next !== '' && Number.isFinite(Number(next))) onValueChange(Number(next))
+    if (next === '') onEmpty?.()
+    else if (Number.isFinite(Number(next))) onValueChange(Number(next))
   }} onBlur={(event) => {
     setDraft(null)
     props.onBlur?.(event)
@@ -1458,9 +1460,10 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
   householdId: string | null; accessToken: string; isOnline: boolean;
   setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setStapleGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
   setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
-  onReviewItems: (items: GroceryItem[], source: GroceryAddSource) => void; onRememberProducts: (items: InventoryItem[]) => void; notify: (message: string) => void; offerUndo: UndoNotice
+  onReviewItems: (items: GroceryItem[], source: GroceryAddSource, onComplete?: () => void) => void; onRememberProducts: (items: InventoryItem[]) => void; notify: (message: string) => void; offerUndo: UndoNotice
 }) {
   const [draft, setDraft] = useState('')
+  const [bulkEntryOpen, setBulkEntryOpen] = useState(false)
   const [filter, setFilter] = useState<'all' | 'needed' | 'checked'>('all')
   const [editing, setEditing] = useState<{ index: number; item: GroceryItem } | null>(null)
   const [adding, setAdding] = useState(false)
@@ -1483,7 +1486,7 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
   function addManual() {
     const items = groceryItemsFromText(draft)
     if (!items.length) return
-    onReviewItems(items, 'bulk add'); setDraft('')
+    onReviewItems(items, 'bulk add', () => { setDraft(''); setBulkEntryOpen(false) })
   }
   function moveCheckedToKitchen(bought: GroceryItem[]) {
     if (!bought.length) return
@@ -1531,12 +1534,12 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
     <div className="grocery-progress panel"><div><span><strong>{checkedCount}</strong> of {grocery.length} collected</span><small>{neededCount ? `${neededCount} item${neededCount === 1 ? '' : 's'} left to find` : grocery.length ? 'Shopping complete — ready for your kitchen' : 'Add items or build a list from a recipe'}</small></div><div role="progressbar" aria-label="Shopping progress" aria-valuemin={0} aria-valuemax={grocery.length} aria-valuenow={checkedCount}><span style={{ width: `${grocery.length ? (checkedCount / grocery.length) * 100 : 0}%` }} /></div></div>
     <div className="grocery-layout"><div className="grocery-list panel">
       {!storeMode && <>
-      <div className="grocery-add-head"><div><strong>Add grocery items</strong><small>Add one item with details, or paste several below.</small></div><button onClick={() => setAdding(true)}><CirclePlus /> Add one item</button></div>
-      <div className="grocery-add"><label>Add several at once<textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'2 bags spinach\n1 gallon milk\n6 apples'} /></label><button onClick={addManual} disabled={!draft.trim()}><Plus /> Add items</button></div>
+      <div className="grocery-entry-head"><div><strong>Add to your list</strong><small>Choose a detailed single item or paste a whole list for review.</small></div><div className="grocery-entry-actions"><button onClick={() => setAdding(true)}><CirclePlus /> One item</button><button className={bulkEntryOpen ? 'active' : ''} onClick={() => setBulkEntryOpen((current) => !current)} aria-expanded={bulkEntryOpen} aria-controls="grocery-bulk-entry"><Plus /> Paste a list</button></div></div>
+      {bulkEntryOpen && <div className="grocery-add" id="grocery-bulk-entry"><label>One item per line<textarea autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') addManual() }} placeholder={'2 bags spinach\n1 gallon milk\n6 apples'} /><small>Your pasted list is not saved until you review and confirm it.</small></label><button onClick={addManual} disabled={!draft.trim()}><ArrowRight /> Review items</button></div>}
       </>}
       {grocery.length > 0 && <div className="grocery-toolbar">{storeMode ? <strong className="store-mode-label"><ShoppingBasket /> {neededCount} item{neededCount === 1 ? '' : 's'} left to collect</strong> : <div className="filter-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {grocery.length}</button><button className={filter === 'needed' ? 'active' : ''} onClick={() => setFilter('needed')}>To buy {neededCount}</button><button className={filter === 'checked' ? 'active' : ''} onClick={() => setFilter('checked')}>Collected {checkedCount}</button></div>}<small>{storeMode ? 'Tap an item as it goes into your cart' : 'Items are grouped by aisle automatically'}</small></div>}
       <div className="grocery-sections">{sections.map(({ category, entries }) => <section className="grocery-section" key={category}><header><strong>{category}</strong><small>{entries.length}</small></header>{entries.map(({ item, index }) => { const bought = purchasedGroceryAmount(item); const isNew = Boolean(item.id && newGroceryIds.has(item.id)); return <div className={`${item.checked ? 'grocery-row checked' : 'grocery-row'}${isNew ? ' is-new' : ''}`} key={item.id || `${item.name}-${item.unit}-${index}`}><button className="check-box" onClick={() => setGrocery((items) => items.map((entry, i) => i === index ? { ...entry, checked: !entry.checked, ...(!entry.checked ? {} : { purchase: undefined }) } : entry))} aria-label={`${item.checked ? 'Return' : 'Mark'} ${item.name} ${item.checked ? 'to list' : 'as collected'}`}>{item.checked && <Check />}</button><span className="grocery-food-icon" aria-hidden="true">{groceryEmoji(item)}</span><p><strong>{item.name}{isNew && <em className="grocery-new-pill">New</em>}</strong><small>{item.checked && item.purchase ? `Bought ${formatAmount(bought.amount)} ${bought.unit} · needed ${formatAmount(item.amount)} ${item.unit}` : `${formatAmount(item.amount)} ${item.unit}`}</small></p>{!storeMode && <div className="grocery-row-actions"><button className="icon-button staple" onClick={() => saveAsStaple(item)} aria-label={`Save ${item.name} as staple`}><Bookmark /></button><button className="icon-button edit" onClick={() => setEditing({ index, item })} aria-label={`Edit ${item.name}`}><Pencil /></button><button className="icon-button delete" onClick={() => removeGroceryItem(item, index)} aria-label={`Remove ${item.name}`}><Trash2 /></button></div>}</div> })}</section>)}</div>
-      {!grocery.length && <Empty title="Your list is clear" copy="Add several items above or choose an almost-ready recipe." />}
+      {!grocery.length && <Empty title="Your list is clear" copy="Add an item above or build a reviewed list from a recipe." />}
       {grocery.length > 0 && !visible.length && <Empty title={filter === 'checked' ? 'Nothing collected yet' : 'Everything is collected'} copy={filter === 'checked' ? 'Tap an item while shopping to move it here.' : 'Switch to Collected to review your cart.'} />}
     </div>{!storeMode && <StaplesPanel groups={stapleGroups} staples={staples} onAdd={(items) => onReviewItems(groceryFromStaples(items), 'staples')} onManage={() => setStaplesOpen(true)} />}</div>
     {editing && <GroceryItemEditor item={editing.item} onClose={() => setEditing(null)} onSave={saveEditedItem} />}
@@ -2358,11 +2361,21 @@ function GroceryAddReview({ request, existing, mappings, onClose, onConfirm }: {
     const mapping = mappings.find((candidate) => candidate.normalizedName === normalize(item.name))
     return mapping ? { ...item, name: mapping.displayName, emoji: mapping.emoji } : { ...item }
   }))
+  const sourceCopy: Record<GroceryAddSource, string> = {
+    recipe: 'a recipe', recommendation: 'a Mise recommendation', 'meal plan': 'your weekly meal plan', Discover: 'a discovered recipe', staples: 'your staples', 'bulk add': 'your pasted list', restock: 'a restock check',
+  }
   function update(index: number, updates: Partial<GroceryItem>) {
     setItems((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...updates } : item))
   }
-  const valid = items.filter((item) => item.name.trim() && item.amount > 0 && item.unit.trim())
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal grocery-add-review" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Review before adding</span><h2>Check your grocery items</h2><p>From {request.source}. Adjust store quantities, add anything missing, or remove what you do not need.</p></div><button onClick={onClose} aria-label="Close grocery review"><X /></button></div><div className="grocery-review-list">{items.map((item, index) => { const merge = existing.some((candidate) => normalize(candidate.name) === normalize(item.name)); return <article key={`${index}-${item.name}`}><span className="grocery-review-icon">{groceryEmoji(item)}</span><label>Ingredient<input value={item.name} onChange={(event) => update(index, { name: event.target.value })} /></label><label>Amount<NumberField min="0.01" step="0.01" value={item.amount} onValueChange={(amount) => update(index, { amount })} /></label><label>Unit<UnitPicker value={item.unit} onChange={(unit) => update(index, { unit })} ariaLabel={`Unit for ${item.name}`} required /></label><button className="icon-button delete" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${item.name}`}><Trash2 /></button>{merge && <small><RefreshCw /> Already listed — Mise will merge it without reducing the current amount.</small>}</article>})}</div><button className="secondary-button grocery-review-add" onClick={() => setItems((current) => [...current, { name: '', amount: 1, unit: 'item', checked: false }])}><Plus /> Add another item</button><div className="grocery-review-footer"><span>{valid.length} item{valid.length === 1 ? '' : 's'} ready</span><button className="submit-button" disabled={!valid.length} onClick={() => onConfirm(valid)}><ShoppingBasket /> Add reviewed items</button></div></section></div>
+  const statuses = groceryReviewStatuses(existing, items)
+  const mergeCount = statuses.filter((status) => status !== 'new').length
+  const allValid = items.length > 0 && items.every(isValidGroceryReviewItem)
+  function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!allValid) return
+    onConfirm(cleanGroceryReviewItems(items))
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-add-review" role="dialog" aria-modal="true" aria-labelledby="grocery-review-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Review before adding</span><h2 id="grocery-review-title">Review grocery items</h2><p>From {sourceCopy[request.source]}. Check each shopping quantity before anything changes.</p></div><button type="button" onClick={onClose} aria-label="Close grocery review"><X /></button></div><div className="grocery-review-summary"><span><strong>{items.length}</strong> item{items.length === 1 ? '' : 's'} to add</span><span><strong>{mergeCount}</strong> will merge</span></div><div className="grocery-review-list">{items.map((item, index) => { const status = statuses[index]; const valid = isValidGroceryReviewItem(item); return <article className={valid ? '' : 'has-error'} key={`${index}-${item.id || 'draft'}`}><div className="grocery-review-identity"><span className="grocery-review-icon">{groceryEmoji(item)}</span><small>{groceryCategory(item)}</small></div><label>Item name<input value={item.name} onChange={(event) => update(index, { name: event.target.value })} placeholder="e.g. Milk" aria-invalid={!item.name.trim()} /></label><label>Quantity<NumberField min="0.01" step="0.01" value={item.amount} onValueChange={(amount) => update(index, { amount })} onEmpty={() => update(index, { amount: 0 })} aria-label={`Quantity for ${item.name || `item ${index + 1}`}`} /></label><label>Unit<UnitPicker value={item.unit} onChange={(unit) => update(index, { unit })} ariaLabel={`Unit for ${item.name || `item ${index + 1}`}`} required /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${item.name || `item ${index + 1}`}`}><Trash2 /></button>{status === 'merge-existing' && <small className="grocery-review-notice"><RefreshCw /> Already on your list — Mise will keep the larger compatible quantity.</small>}{status === 'merge-draft' && <small className="grocery-review-notice"><RefreshCw /> Matches another item in this review — they will combine.</small>}{!valid && <small className="grocery-review-error"><TriangleAlert /> Add a name, positive quantity, and unit to continue.</small>}</article>})}</div>{!items.length && <div className="grocery-review-empty"><strong>No items in this review</strong><span>Add a row or cancel without changing your grocery list.</span></div>}<button type="button" className="secondary-button grocery-review-add" onClick={() => setItems((current) => [...current, { name: '', amount: 1, unit: 'item', checked: false }])}><Plus /> Add another item</button><div className="grocery-review-footer"><span>{allValid ? `${items.length} item${items.length === 1 ? '' : 's'} ready${mergeCount ? ` · ${mergeCount} merging` : ''}` : 'Complete every row to continue'}</span><div><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="submit-button" disabled={!allValid}><ShoppingBasket /> Add {items.length || ''} item{items.length === 1 ? '' : 's'}</button></div></div></form></div>
 }
 
 function CookingCompletion({ recipe, scale, inventory, onClose, onComplete }: { recipe: RecipeMatch; scale: number; inventory: InventoryItem[]; onClose: () => void; onComplete: (items: GroceryItem[]) => void }) {
