@@ -1,5 +1,16 @@
 export type Category = 'Protein' | 'Produce' | 'Dairy' | 'Pantry' | 'Other'
 export type Location = 'Fridge' | 'Freezer' | 'Pantry'
+export type FoodGroup = 'Protein' | 'Produce' | 'Dairy & alternatives' | 'Grains & starches' | 'Legumes' | 'Nuts & seeds' | 'Spices & seasonings' | 'Condiments & oils' | 'Other'
+export type StorageCondition = 'ambient' | 'chilled' | 'frozen'
+export type FreshnessPolicy = 'tracked' | 'none'
+
+export type StorageArea = {
+  id: string
+  name: string
+  condition: StorageCondition
+  sortOrder: number
+  archivedAt?: string | null
+}
 
 export type ProductSource = 'open-food-facts' | 'household'
 
@@ -20,6 +31,9 @@ export type InventoryItem = ProductMetadata & {
   unit: string
   category: Category
   location: Location
+  foodGroup?: FoodGroup
+  storageAreaId?: string
+  freshnessPolicy?: FreshnessPolicy
   expiresIn: number | null
   expiresOn?: string | null
 }
@@ -31,6 +45,9 @@ export type HouseholdProduct = ProductMetadata & {
   unit: string
   category: Category
   location: Location
+  foodGroup?: FoodGroup
+  storageAreaId?: string
+  freshnessPolicy?: FreshnessPolicy
 }
 
 export type RecipeIngredient = {
@@ -61,6 +78,9 @@ export type GroceryPurchase = ProductMetadata & {
   packageSize: number
   packageUnit: string
   location?: Location
+  foodGroup?: FoodGroup
+  storageAreaId?: string
+  freshnessPolicy?: FreshnessPolicy
   expiresOn?: string | null
 }
 
@@ -79,6 +99,9 @@ export type HouseholdFoodMapping = {
   emoji: string
   category: Category
   location: Location
+  foodGroup?: FoodGroup
+  storageAreaId?: string
+  freshnessPolicy?: FreshnessPolicy
 }
 
 export type GroceryStapleGroup = {

@@ -1,6 +1,7 @@
 import { getFoodIntelligence } from './foodCatalog'
 import { normalizeFoodName } from './smartEntry'
 import type { Category, GroceryItem, HouseholdFoodMapping, InventoryItem, Location } from './types'
+import { foodGroupForLegacyCategory, storageAreaIdForLocation } from './storageAreas'
 
 const genericIcons = new Set(['', '🥫', '🛒', '📦'])
 const categories = new Set<Category>(['Protein', 'Produce', 'Dairy', 'Pantry', 'Other'])
@@ -25,8 +26,13 @@ export function normalizeLegacyInventory(items: InventoryItem[]) {
     const emoji = typeof item.emoji === 'string' && item.emoji.trim() ? item.emoji : intelligence?.profile.emoji || '🥫'
     const category = categories.has(item.category) ? item.category : intelligence?.profile.category || 'Other'
     const location = locations.has(item.location) ? item.location : intelligence?.profile.location || 'Pantry'
-    const next: InventoryItem = { ...item, id, emoji, quantity: 1, unit: 'item', category, location }
-    if (id !== item.id || emoji !== item.emoji || item.quantity !== 1 || item.unit !== 'item' || category !== item.category || location !== item.location) changed = true
+    const foodGroup = item.foodGroup || intelligence?.profile.foodGroup || foodGroupForLegacyCategory(category)
+    const storageAreaId = item.storageAreaId || intelligence?.profile.storageAreaId || storageAreaIdForLocation(location)
+    const freshnessPolicy = item.freshnessPolicy || intelligence?.profile.freshnessPolicy || 'none'
+    const expiresOn = freshnessPolicy === 'none' ? null : item.expiresOn
+    const expiresIn = freshnessPolicy === 'none' ? null : item.expiresIn
+    const next: InventoryItem = { ...item, id, emoji, quantity: 1, unit: 'item', category, location, foodGroup, storageAreaId, freshnessPolicy, expiresOn, expiresIn }
+    if (id !== item.id || emoji !== item.emoji || item.quantity !== 1 || item.unit !== 'item' || category !== item.category || location !== item.location || foodGroup !== item.foodGroup || storageAreaId !== item.storageAreaId || freshnessPolicy !== item.freshnessPolicy || expiresOn !== item.expiresOn || expiresIn !== item.expiresIn) changed = true
     return next
   })
   return { items: normalized, changed }
@@ -53,7 +59,7 @@ export function normalizeLegacyGrocery(items: GroceryItem[]) {
 export function resolveInventoryPresentation(item: InventoryItem, mappings: HouseholdFoodMapping[]) {
   const normalizedName = normalizeFoodName(item.name)
   const mapping = mappings.find((candidate) => candidate.normalizedName === normalizedName)
-  if (mapping) return { ...item, name: mapping.displayName, emoji: mapping.emoji, category: mapping.category, location: mapping.location }
+  if (mapping) return { ...item, name: mapping.displayName, emoji: mapping.emoji, category: mapping.category, location: mapping.location, foodGroup: mapping.foodGroup || item.foodGroup, storageAreaId: mapping.storageAreaId || item.storageAreaId, freshnessPolicy: mapping.freshnessPolicy || item.freshnessPolicy }
   const catalog = getFoodIntelligence(item.name)?.profile
   if (catalog) return { ...item, emoji: catalog.emoji }
   return { ...item, emoji: genericIcons.has(item.emoji || '') ? '🥫' : item.emoji }
@@ -74,7 +80,7 @@ export function legacyFoodMappings(inventory: InventoryItem[], mappings: Househo
     const normalizedName = normalizeFoodName(item.name)
     if (!normalizedName || known.has(normalizedName) || getFoodIntelligence(item.name) || genericIcons.has(item.emoji || '')) return
     known.add(normalizedName)
-    additions.push({ normalizedName, displayName: item.name.trim(), emoji: item.emoji, category: item.category, location: item.location })
+    additions.push({ normalizedName, displayName: item.name.trim(), emoji: item.emoji, category: item.category, location: item.location, foodGroup: item.foodGroup, storageAreaId: item.storageAreaId, freshnessPolicy: item.freshnessPolicy })
   })
   return additions
 }

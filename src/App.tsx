@@ -36,13 +36,14 @@ import { saveableDiscoveredRecipe } from './savedRecipe'
 import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type DiscoverRecipeDetails } from './spoonacular'
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
-import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadGroceryLastSeen, loadHouseholdActivity, loadHouseholdFoodMappings, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markGrocerySeen, markHouseholdInitialized, recordUnknownFoodTerm, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveHouseholdFoodMapping, saveKitchenSnapshot, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
+import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadGroceryLastSeen, loadHouseholdActivity, loadHouseholdFoodMappings, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markGrocerySeen, markHouseholdInitialized, recordUnknownFoodTerm, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveHouseholdFoodMapping, saveKitchenSnapshot, saveStorageAreas, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
 import { createLatestSaveQueue, withRetry } from './sync'
-import type { Category, CookingHistoryEntry, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, Location, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe } from './types'
+import type { Category, CookingHistoryEntry, FoodGroup, FoodIntolerance, FoodPreferences, FreshnessPolicy, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe, StorageArea, StorageCondition } from './types'
 import UnitPicker from './UnitPicker'
+import { activeStorageAreas, currentStorageAreaId, defaultStorageAreas, foodGroups, freshnessLabel, legacyCategoryForFoodGroup, legacyLocationForCondition, storageAreaForId } from './storageAreas'
 
 type View = 'home' | 'kitchen' | 'recipes' | 'planner' | 'grocery' | 'settings'
-type KitchenCategory = 'All' | Category
+type KitchenFoodGroup = 'All' | FoodGroup
 type SyncState = 'saved' | 'syncing' | 'error' | 'offline' | 'conflict'
 type SmartReviewItem = SmartEntryItem & { merge: boolean }
 type ToastState = { message: string; undo?: () => void }
@@ -52,12 +53,13 @@ type GroceryAddSource = 'recipe' | 'recommendation' | 'meal plan' | 'Discover' |
 type GroceryReviewRequest = { items: GroceryItem[]; source: GroceryAddSource; onComplete?: () => void }
 type CookingDraft = { recipe: RecipeMatch; scale: number }
 type SettingsArea = 'general' | 'food' | 'household' | 'account'
-type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
+type StoredKitchen = { householdId: string; inventory: InventoryItem[]; grocery: GroceryItem[]; stapleGroups?: GroceryStapleGroup[]; staples?: GroceryStaple[]; recipes?: Recipe[]; mealPlan?: MealPlanEntry[]; mealPlanTemplates?: MealPlanTemplate[]; cookingHistory?: CookingHistoryEntry[]; productMemory?: HouseholdProduct[]; storageAreas?: StorageArea[]; hiddenMiseRecipeIds?: string[]; savedAt: string }
 type KitchenSyncMessage = { type: 'kitchen-saved'; senderId: string; revision: number; snapshot: StoredKitchen }
 
 const categories: Category[] = ['Protein', 'Produce', 'Dairy', 'Pantry', 'Other']
 const categoryEmoji: Record<Category, string> = { Protein: '🥩', Produce: '🥬', Dairy: '🥛', Pantry: '🌾', Other: '🧂' }
-const foodIcons = Array.from(new Set(foodCatalog.map((profile) => profile.emoji)))
+const defaultIngredientIcon = '◌'
+const foodIcons = Array.from(new Set([defaultIngredientIcon, ...foodCatalog.map((profile) => profile.emoji)]))
 
 function kitchenStorageKey(kind: 'cache' | 'pending', userId: string) {
   return `mise-cloud-${kind}-v1-${userId}`
@@ -92,7 +94,8 @@ function errorMessage(error: unknown, fallback: string) {
 
 function App() {
   const [view, setView] = useState<View>('home')
-  const [kitchenCategory, setKitchenCategory] = useState<KitchenCategory>('All')
+  const [kitchenLocation, setKitchenLocation] = useState('all')
+  const [kitchenFoodGroup, setKitchenFoodGroup] = useState<KitchenFoodGroup>('All')
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('mise-inventory-v1') || '') || seedInventory
@@ -134,6 +137,9 @@ function App() {
   const [productMemory, setProductMemory] = useState<HouseholdProduct[]>(() => {
     try { return JSON.parse(localStorage.getItem('mise-product-memory-v1') || '') || [] } catch { return [] }
   })
+  const [storageAreas, setStorageAreas] = useState<StorageArea[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mise-storage-areas-v1') || '') || defaultStorageAreas } catch { return defaultStorageAreas }
+  })
   const [foodMappings, setFoodMappings] = useState<HouseholdFoodMapping[]>([])
   const [foodMappingsReady, setFoodMappingsReady] = useState(false)
   const [newGroceryIds, setNewGroceryIds] = useState<Set<string>>(new Set())
@@ -142,6 +148,7 @@ function App() {
   const [smartOpen, setSmartOpen] = useState(false)
   const [barcodeOpen, setBarcodeOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [topMenuOpen, setTopMenuOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null)
@@ -219,11 +226,12 @@ function App() {
       setMealPlanTemplates(cloud.mealPlanTemplates)
       setCookingHistory(cloud.cookingHistory)
       setProductMemory(cloud.productMemory)
+      setStorageAreas(cloud.storageAreas)
       setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
       setFoodMappings(mappings)
       setFoodMappingsReady(true)
       mealPlanTemplatesDirty.current = false
-      const snapshot = { householdId: targetHousehold, ...shared, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+      const snapshot = { householdId: targetHousehold, ...shared, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, storageAreas: cloud.storageAreas, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
       writeStoredKitchen('cache', session.user.id, snapshot)
       setSyncState('saved')
     } catch (error) {
@@ -276,6 +284,18 @@ function App() {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    if (!topMenuOpen) return
+    const close = () => setTopMenuOpen(false)
+    const closeWithKeyboard = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', closeWithKeyboard)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', closeWithKeyboard)
+    }
+  }, [topMenuOpen])
+
   useEffect(() => () => {
     if (remoteRefreshTimer.current !== null) window.clearTimeout(remoteRefreshTimer.current)
     remoteRefreshRequest.current += 1
@@ -311,6 +331,7 @@ function App() {
             setMealPlanTemplates(localKitchen.mealPlanTemplates || [])
             setCookingHistory(localKitchen.cookingHistory || [])
             setProductMemory(localKitchen.productMemory || [])
+            setStorageAreas(localKitchen.storageAreas || defaultStorageAreas)
             setHiddenMiseRecipeIds(localKitchen.hiddenMiseRecipeIds || [])
             setCloudReady(true)
           }
@@ -325,6 +346,7 @@ function App() {
         syncRevision.current = Date.now()
         syncConflict.current = false
         setHouseholdId(id)
+        setStorageAreas(cloud.storageAreas)
         const normalizedCloud: CollaborativeKitchenSnapshot = {
           inventory: normalizeLegacyInventory(cloud.inventory).items,
           grocery: normalizeLegacyGrocery(cloud.grocery).items,
@@ -360,6 +382,7 @@ function App() {
           setMealPlanTemplates(rebased.mealPlanTemplates)
           setCookingHistory(pending.cookingHistory || cloud.cookingHistory)
           setProductMemory(pending.productMemory || cloud.productMemory)
+          setStorageAreas(pending.storageAreas || cloud.storageAreas)
           mealPlanTemplatesDirty.current = pendingShared.mealPlanTemplates.length > 0
           setHiddenMiseRecipeIds(pending.hiddenMiseRecipeIds || [])
         } else if (!cloud.initialized) {
@@ -370,6 +393,7 @@ function App() {
           setMealPlanTemplates(starterMealPlanTemplates.current)
           setCookingHistory([])
           setProductMemory(cloud.productMemory)
+          setStorageAreas(cloud.storageAreas)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds([])
           setStapleGroups(starterStapleGroups.current)
@@ -391,9 +415,10 @@ function App() {
           setMealPlanTemplates(cloud.mealPlanTemplates)
           setCookingHistory(cloud.cookingHistory)
           setProductMemory(cloud.productMemory)
+          setStorageAreas(cloud.storageAreas)
           mealPlanTemplatesDirty.current = false
           setHiddenMiseRecipeIds(cloud.hiddenMiseRecipeIds)
-          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: legacyInventory.items, grocery: legacyGrocery.items, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
+          writeStoredKitchen('cache', session!.user.id, { householdId: id, inventory: legacyInventory.items, grocery: legacyGrocery.items, stapleGroups: cloud.stapleGroups, staples: cloud.staples, recipes: cloud.recipes, mealPlan: cloud.mealPlan, mealPlanTemplates: cloud.mealPlanTemplates, cookingHistory: cloud.cookingHistory, productMemory: cloud.productMemory, storageAreas: cloud.storageAreas, hiddenMiseRecipeIds: cloud.hiddenMiseRecipeIds, savedAt: new Date().toISOString() })
           if (legacyInventory.changed) forcedCollectionVersions.current = forceKitchenCollections(forcedCollectionVersions.current, ['inventory'])
           if (legacyGrocery.changed) forcedCollectionVersions.current = forceKitchenCollections(forcedCollectionVersions.current, ['grocery'])
         }
@@ -454,6 +479,9 @@ function App() {
   useEffect(() => {
     if (!session || demoMode) localStorage.setItem('mise-product-memory-v1', JSON.stringify(productMemory))
   }, [productMemory, session, demoMode])
+  useEffect(() => {
+    if (!session || demoMode) localStorage.setItem('mise-storage-areas-v1', JSON.stringify(storageAreas))
+  }, [storageAreas, session, demoMode])
 
   useEffect(() => {
     if (!session || demoMode) return
@@ -502,7 +530,7 @@ function App() {
   useEffect(() => {
     if (!session || !householdId || !cloudReady || !supabase || demoMode) return
     const client = supabase
-    const tables = ['inventory_items', 'grocery_items', 'household_recipes', 'meal_plan_entries', 'meal_plan_templates', 'grocery_staple_groups', 'grocery_staples', 'cooking_history', 'household_products', 'household_food_mappings']
+    const tables = ['inventory_items', 'grocery_items', 'household_recipes', 'meal_plan_entries', 'meal_plan_templates', 'grocery_staple_groups', 'grocery_staples', 'cooking_history', 'household_products', 'household_food_mappings', 'household_storage_areas']
     const channel = client.channel(`mise-household-${householdId}`)
     tables.forEach((table) => {
       channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, (payload) => {
@@ -576,6 +604,7 @@ function App() {
       mealPlanTemplatesDirty.current = false
       setCookingHistory(snapshot.cookingHistory || [])
       setProductMemory(snapshot.productMemory || [])
+      setStorageAreas(snapshot.storageAreas || defaultStorageAreas)
       setHiddenMiseRecipeIds(snapshot.hiddenMiseRecipeIds || [])
       writeStoredKitchen('cache', session.user.id, snapshot)
       localStorage.removeItem(kitchenStorageKey('pending', session.user.id))
@@ -610,7 +639,7 @@ function App() {
       ...changedKitchenCollections(fingerprints, syncBaseline.current, forceAllCollectionsSave.current),
       ...forcedCollections,
     ])]
-    const snapshot = { householdId, ...shared, cookingHistory, productMemory, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
+    const snapshot = { householdId, ...shared, cookingHistory, productMemory, storageAreas, hiddenMiseRecipeIds, savedAt: new Date().toISOString() }
     if (!dirtyCollections.length) {
       writeStoredKitchen('cache', session.user.id, snapshot)
       if (localChangesPending.current) {
@@ -663,7 +692,7 @@ function App() {
       }
     }, retryToken ? 50 : 450)
     return () => window.clearTimeout(timer)
-  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken, scheduleRemoteRefresh])
+  }, [inventory, grocery, stapleGroups, staples, customRecipes, mealPlan, mealPlanTemplates, cookingHistory, productMemory, storageAreas, hiddenMiseRecipeIds, householdId, cloudReady, session, isOnline, retryToken, scheduleRemoteRefresh])
 
   useEffect(() => {
     if (syncState === 'saved') return
@@ -693,6 +722,7 @@ function App() {
   const recipeGuidance = useMemo(() => recommendationGuidance(recipeMatches, inventory), [recipeMatches, inventory])
 
   const urgentItems = [...inventory].filter((item) => {
+    if (item.freshnessPolicy === 'none') return false
     const days = daysUntilExpiration(item)
     return days !== null && days <= 3
   }).sort((a, b) => Number(daysUntilExpiration(a)) - Number(daysUntilExpiration(b)))
@@ -716,17 +746,22 @@ function App() {
   }
 
   function applyFoodMapping(item: InventoryItem) {
-    return resolveInventoryPresentation(item, foodMappings)
+    const mapped = resolveInventoryPresentation(item, foodMappings)
+    const requestedArea = storageAreas.find((area) => area.id === mapped.storageAreaId)
+    if (requestedArea && !requestedArea.archivedAt) return mapped
+    const desiredCondition: StorageCondition = requestedArea?.condition || (mapped.location === 'Fridge' ? 'chilled' : mapped.location === 'Freezer' ? 'frozen' : 'ambient')
+    const fallback = activeStorageAreas(storageAreas).find((area) => area.condition === desiredCondition) || activeStorageAreas(storageAreas)[0] || defaultStorageAreas[2]
+    return { ...mapped, storageAreaId: fallback.id, location: legacyLocationForCondition(fallback.condition) }
   }
 
   function rememberIngredient(item: InventoryItem) {
-    if (getFoodIntelligence(item.name)) return
-    const mapping: HouseholdFoodMapping = { normalizedName: normalize(item.name), displayName: item.name.trim(), emoji: item.emoji, category: item.category, location: item.location }
+    const known = Boolean(getFoodIntelligence(item.name))
+    const mapping: HouseholdFoodMapping = { normalizedName: normalize(item.name), displayName: item.name.trim(), emoji: item.emoji, category: item.category, location: item.location, foodGroup: item.foodGroup, storageAreaId: item.storageAreaId, freshnessPolicy: item.freshnessPolicy }
     setFoodMappings((current) => [...current.filter((candidate) => candidate.normalizedName !== mapping.normalizedName), mapping])
     setGrocery((current) => current.map((entry) => resolveGroceryPresentation(entry, [mapping])))
     if (householdId && session && !demoMode) {
       void saveHouseholdFoodMapping(householdId, mapping).catch((error) => console.error('Food icon choice could not be remembered.', error))
-      void recordUnknownFoodTerm(item.name).catch((error) => console.error('Unknown food trend could not be recorded.', error))
+      if (!known) void recordUnknownFoodTerm(item.name).catch((error) => console.error('Unknown food trend could not be recorded.', error))
     }
   }
 
@@ -787,6 +822,41 @@ function App() {
     notify('Food preferences saved')
   }
 
+  async function updateStorageAreas(nextAreas: StorageArea[]) {
+    const previous = storageAreas
+    setStorageAreas(nextAreas)
+    try {
+      if (session && householdId && !demoMode) await saveStorageAreas(householdId, nextAreas)
+    } catch (error) {
+      setStorageAreas(previous)
+      throw error
+    }
+  }
+
+  async function createStorageArea(name: string, condition: StorageCondition) {
+    const cleanName = name.trim()
+    const duplicate = storageAreas.find((area) => normalize(area.name) === normalize(cleanName))
+    if (duplicate) {
+      if (!duplicate.archivedAt) return duplicate
+      const restored = { ...duplicate, condition, archivedAt: null }
+      await updateStorageAreas(storageAreas.map((area) => area.id === duplicate.id ? restored : area))
+      return restored
+    }
+    const area: StorageArea = { id: `custom-${crypto.randomUUID()}`, name: cleanName, condition, sortOrder: storageAreas.length, archivedAt: null }
+    await updateStorageAreas([...storageAreas, area])
+    return area
+  }
+
+  async function archiveStorageArea(areaId: string, replacementId: string) {
+    const replacement = storageAreaForId(storageAreas, replacementId)
+    const nextAreas = storageAreas.map((area) => area.id === areaId ? { ...area, archivedAt: new Date().toISOString() } : area)
+    setInventory((current) => current.map((item) => item.storageAreaId === areaId ? { ...item, storageAreaId: replacement.id, location: legacyLocationForCondition(replacement.condition) } : item))
+    const nextMappings = foodMappings.map((mapping) => mapping.storageAreaId === areaId ? { ...mapping, storageAreaId: replacement.id, location: legacyLocationForCondition(replacement.condition) } : mapping)
+    setFoodMappings(nextMappings)
+    if (session && householdId && !demoMode) await Promise.all([updateStorageAreas(nextAreas), ...nextMappings.filter((mapping, index) => mapping !== foodMappings[index]).map((mapping) => saveHouseholdFoodMapping(householdId, mapping))])
+    else setStorageAreas(nextAreas)
+  }
+
   async function activateHousehold(nextHouseholdId: string) {
     if (!session || !householdId || nextHouseholdId === householdId) return
     if (syncState !== 'saved') throw new Error('Wait for your current kitchen to finish saving, then try again.')
@@ -834,8 +904,11 @@ function App() {
           unit: 'item',
           category: reviewItem.category,
           location: reviewItem.location,
+          foodGroup: reviewItem.foodGroup,
+          storageAreaId: reviewItem.storageAreaId,
+          freshnessPolicy: reviewItem.freshnessPolicy,
           expiresIn: reviewItem.expiresIn,
-          expiresOn: reviewItem.expiresOn,
+          expiresOn: reviewItem.freshnessPolicy === 'none' ? null : reviewItem.expiresOn,
         })
         if (reviewItem.merge) {
           const result = mergeInventoryItems(next, [item])
@@ -1019,7 +1092,7 @@ function App() {
         </button>
         <nav>
           <NavButton className="overview-nav" active={view === 'home'} icon={<Sparkles />} label="Overview" onClick={() => setView('home')} />
-          <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenCategory('All'); setView('kitchen') }} />
+          <NavButton active={view === 'kitchen'} icon={<PackageOpen />} label="My kitchen" badge={inventory.length} onClick={() => { setKitchenLocation('all'); setKitchenFoodGroup('All'); setView('kitchen') }} />
           <NavButton active={view === 'recipes'} icon={<CookingPot />} label="What can I make?" badge={readyCount} onClick={() => setView('recipes')} />
           <NavButton active={view === 'planner'} icon={<CalendarDays />} label="Meal plan" badge={mealPlan.length} onClick={() => setView('planner')} />
           <NavButton active={view === 'grocery'} icon={<ShoppingBasket />} label="Grocery list" badge={grocery.filter((item) => !item.checked).length} newBadge={newGroceryIds.size} onClick={() => setView('grocery')} />
@@ -1039,27 +1112,32 @@ function App() {
           {session && (syncState === 'error' || syncState === 'offline' || syncState === 'conflict'
             ? <button className={`sync-state ${syncState}`} onClick={retrySync} title={syncState === 'conflict' ? 'Reload the newest kitchen' : 'Retry cloud sync'}>{syncState === 'offline' ? <WifiOff size={14} /> : <RefreshCw size={14} />} {syncState === 'offline' ? 'Offline' : syncState === 'conflict' ? 'Newer changes found' : 'Retry sync'}</button>
             : <span className={`sync-state ${syncState}`}><Cloud size={14} /> {syncState === 'saved' ? 'Saved' : 'Saving…'}</span>)}
-          {session && <button className="feedback-button" onClick={() => setFeedbackOpen(true)} aria-label="Open feedback"><MessageSquareText size={16} /><span>Feedback</span></button>}
-          <button className="smart-button" onClick={() => setSmartOpen(true)}><Sparkles size={16} /> Smart add</button>
-          <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={18} /> Add ingredients</button>
+          <div className="topbar-menu-wrap" onPointerDown={(event) => event.stopPropagation()}>
+            <button className="topbar-menu-button" onClick={() => setTopMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={topMenuOpen}><MoreHorizontal size={18} /><span>Menu</span></button>
+            {topMenuOpen && <div className="topbar-menu" role="menu">
+              <button role="menuitem" onClick={() => { setTopMenuOpen(false); setAddOpen(true) }}><Plus /> Add ingredients</button>
+              <button role="menuitem" onClick={() => { setTopMenuOpen(false); setSmartOpen(true) }}><Sparkles /> Smart add</button>
+              <button role="menuitem" onClick={() => { setTopMenuOpen(false); setFeedbackOpen(true) }}><MessageSquareText /> Send feedback</button>
+            </div>}
+          </div>
         </header>
 
         <div className="page">
-          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} guidance={recipeGuidance} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenCategory(category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'recommendation')} />}
-          {view === 'kitchen' && <Kitchen inventory={inventory} category={kitchenCategory} setCategory={setKitchenCategory} syncState={session ? syncState : 'saved'} isOnline={isOnline} onRetry={retrySync} onAdd={() => setAddOpen(true)} onSmartAdd={() => setSmartOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} onDelete={(item) => { setInventory((current) => current.filter((entry) => entry.id !== item.id)); offerUndo(`${item.name} deleted`, () => setInventory((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item]), `${item.name} restored`, ['inventory']) }} />}
-          {view === 'recipes' && <Recipes recipes={recipeMatches} guidance={recipeGuidance} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'Discover')} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onOpenKitchen={() => { setKitchenCategory('All'); setView('kitchen') }} />}
+          {view === 'home' && <Home displayName={greetingName} inventory={inventory} counts={counts} urgentItems={urgentItems} recipes={recipeMatches} guidance={recipeGuidance} mealReminders={todayMealReminders} readyCount={readyCount} groceryCount={grocery.filter((item) => !item.checked).length} setView={setView} openKitchen={(category = 'All') => { setKitchenLocation('all'); setKitchenFoodGroup(category === 'Dairy' ? 'Dairy & alternatives' : category === 'Pantry' ? 'All' : category); setView('kitchen') }} setSelectedRecipe={setSelectedRecipe} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'recommendation')} />}
+          {view === 'kitchen' && <Kitchen inventory={inventory} storageAreas={storageAreas} locationId={kitchenLocation} setLocationId={setKitchenLocation} foodGroup={kitchenFoodGroup} setFoodGroup={setKitchenFoodGroup} syncState={session ? syncState : 'saved'} isOnline={isOnline} onRetry={retrySync} onAdd={() => setAddOpen(true)} onEdit={setEditingItem} onRestock={restockIngredient} onDelete={(item) => { setInventory((current) => current.filter((entry) => entry.id !== item.id)); offerUndo(`${item.name} deleted`, () => setInventory((current) => current.some((entry) => entry.id === item.id) ? current : [...current, item]), `${item.name} restored`, ['inventory']) }} />}
+          {view === 'recipes' && <Recipes recipes={recipeMatches} guidance={recipeGuidance} cookingHistory={cookingHistory} inventory={inventory} preferences={foodPreferences} accessToken={session?.access_token || ''} savedExternalIds={customRecipes.flatMap((recipe) => recipe.externalId ? [recipe.externalId] : [])} setSelectedRecipe={setSelectedRecipe} onRemoveHistory={removeCookingHistory} onAdd={() => { setEditingRecipe(null); setRecipeEditorOpen(true) }} onSaveDiscovered={saveDiscoveredRecipe} onAddToGrocery={(items) => reviewGrocery(items, 'Discover')} onRecipeAction={cookRecipe} onPlanRecipe={setPlanningRecipe} onOpenKitchen={() => { setKitchenLocation('all'); setKitchenFoodGroup('All'); setView('kitchen') }} />}
           {view === 'planner' && <MealPlanner recipes={recipeMatches} inventory={inventory} entries={mealPlan} templates={mealPlanTemplates} setEntries={setMealPlan} setTemplates={updateMealPlanTemplates} onDeleteTemplate={removeMealPlanTemplate} onAddToGrocery={(items) => reviewGrocery(items, 'meal plan')} notify={notify} offerUndo={offerUndo} />}
-          {view === 'grocery' && <Grocery grocery={grocery} newGroceryIds={newGroceryIds} stapleGroups={stapleGroups} staples={staples} inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} syncState={session ? syncState : 'saved'} isOnline={isOnline} onRetry={retrySync} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} onReviewItems={reviewGrocery} onRememberProducts={(items) => setProductMemory((current) => rememberHouseholdProducts(current, items))} notify={notify} offerUndo={offerUndo} />}
-          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
+          {view === 'grocery' && <Grocery grocery={grocery} newGroceryIds={newGroceryIds} stapleGroups={stapleGroups} staples={staples} inventory={inventory} storageAreas={storageAreas} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} syncState={session ? syncState : 'saved'} isOnline={isOnline} onRetry={retrySync} setGrocery={setGrocery} setStapleGroups={setStapleGroups} setStaples={setStaples} setInventory={setInventory} onReviewItems={reviewGrocery} onRememberProducts={(items) => setProductMemory((current) => rememberHouseholdProducts(current, items))} notify={notify} offerUndo={offerUndo} />}
+          {view === 'settings' && <SettingsPage session={session} householdId={householdId} displayName={displayName} preferences={foodPreferences} reminderPreferences={mealReminderPreferences} storageAreas={storageAreas} inventory={inventory} syncState={syncState} isOnline={isOnline} inventoryCount={inventory.length} groceryCount={grocery.length} onRetry={retrySync} onResetPassword={sendPasswordReset} onUpdateName={updateProfileName} onUpdatePreferences={updateFoodPreferences} onUpdateReminderPreferences={setMealReminderPreferences} onUpdateStorageAreas={updateStorageAreas} onArchiveStorageArea={archiveStorageArea} onActivateHousehold={activateHousehold} onJoinHousehold={joinSharedHousehold} onOpenFeedback={() => setFeedbackOpen(true)} onSignOut={leaveAccount} />}
         </div>
       </main>
 
-      {addOpen && <AddFood onClose={() => setAddOpen(false)} onAdd={(rawItem) => { const item = applyFoodMapping(rawItem); rememberIngredient(item); const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} refreshed in your kitchen` : `${item.name} added to your kitchen`) }} />}
-      {smartOpen && <SmartAdd inventory={inventory} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
-      {barcodeOpen && <BarcodeScanner inventory={inventory} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} onClose={() => setBarcodeOpen(false)} onAdd={(rawItems) => { const items = rawItems.map(applyFoodMapping); items.forEach(rememberIngredient); const before = inventory; const beforeMemory = productMemory; const result = mergeInventoryItems(inventory, items); setProductMemory((current) => rememberHouseholdProducts(current, items)); setInventory(result.items); setBarcodeOpen(false); offerUndo(`${barcodeBatchLabel(items.length)} saved to your kitchen`, () => { setInventory(before); setProductMemory(beforeMemory) }, 'Barcode scan undone', ['inventory']) }} />}
+      {addOpen && <AddFood storageAreas={storageAreas} onCreateStorageArea={createStorageArea} onClose={() => setAddOpen(false)} onAdd={(rawItem) => { const item = applyFoodMapping(rawItem); rememberIngredient(item); const result = mergeInventoryItems(inventory, [item]); setInventory(result.items); setAddOpen(false); notify(result.merged ? `${item.name} refreshed in your kitchen` : `${item.name} added to your kitchen`) }} />}
+      {smartOpen && <SmartAdd inventory={inventory} storageAreas={storageAreas} onClose={() => setSmartOpen(false)} onScanBarcode={() => { setSmartOpen(false); setBarcodeOpen(true) }} onAdd={addSmartItems} />}
+      {barcodeOpen && <BarcodeScanner inventory={inventory} storageAreas={storageAreas} rememberedProducts={productMemory} householdId={householdId} accessToken={session?.access_token || ''} isOnline={isOnline} onClose={() => setBarcodeOpen(false)} onAdd={(rawItems) => { const items = rawItems.map(applyFoodMapping); items.forEach(rememberIngredient); const before = inventory; const beforeMemory = productMemory; const result = mergeInventoryItems(inventory, items); setProductMemory((current) => rememberHouseholdProducts(current, items)); setInventory(result.items); setBarcodeOpen(false); offerUndo(`${barcodeBatchLabel(items.length)} saved to your kitchen`, () => { setInventory(before); setProductMemory(beforeMemory) }, 'Barcode scan undone', ['inventory']) }} />}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} onSubmit={sendFeedback} />}
       {passwordRecoveryOpen && <PasswordRecoveryModal onClose={() => setPasswordRecoveryOpen(false)} />}
-      {editingItem && <AddFood initialItem={editingItem} onClose={() => setEditingItem(null)} onAdd={(item) => { rememberIngredient(item); setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
+      {editingItem && <AddFood initialItem={editingItem} storageAreas={storageAreas} onCreateStorageArea={createStorageArea} onClose={() => setEditingItem(null)} onAdd={(item) => { rememberIngredient(item); setInventory((current) => current.map((entry) => entry.id === item.id ? item : entry)); setEditingItem(null); notify(`${item.name} updated`) }} />}
       {recipeEditorOpen && <RecipeEditor inventory={inventory.map((item) => ({ ...item, unit: getFoodIntelligence(item.name)?.profile.defaultUnit || 'item' }))} initialRecipe={editingRecipe || undefined} onClose={() => { setRecipeEditorOpen(false); setEditingRecipe(null) }} onSave={saveCustomRecipe} />}
       {selectedRecipe && <RecipeSheet recipe={selectedRecipe} inventory={inventory} onClose={() => setSelectedRecipe(null)} onAction={(scale) => cookRecipe(selectedRecipe, scale)} onEdit={selectedRecipe.source === 'user' ? () => { setEditingRecipe(selectedRecipe); setSelectedRecipe(null); setRecipeEditorOpen(true) } : undefined} onDelete={() => void deleteRecipe(selectedRecipe)} />}
       {planningRecipe && <RecommendationPlanner recipe={planningRecipe} onClose={() => setPlanningRecipe(null)} onPlan={(date, mealSlot, servings) => planRecommendedRecipe(planningRecipe, date, mealSlot, servings)} />}
@@ -1091,7 +1169,7 @@ function NumberField({ value, onValueChange, onEmpty, ...props }: Omit<React.Inp
 function Home({ displayName, inventory, counts, urgentItems, recipes, guidance, mealReminders, readyCount, groceryCount, setView, openKitchen, setSelectedRecipe, onRecipeAction, onPlanRecipe, onAddToGrocery }: {
   displayName: string;
   inventory: InventoryItem[]; counts: { category: Category; count: number }[]; urgentItems: InventoryItem[]; recipes: RecipeMatch[];
-  guidance: RecommendationGuidance | null; mealReminders: MealReminder[]; readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: KitchenCategory) => void; setSelectedRecipe: (recipe: RecipeMatch) => void;
+  guidance: RecommendationGuidance | null; mealReminders: MealReminder[]; readyCount: number; groceryCount: number; setView: (view: View) => void; openKitchen: (category?: 'All' | Category) => void; setSelectedRecipe: (recipe: RecipeMatch) => void;
   onRecipeAction: (recipe: RecipeMatch) => void; onPlanRecipe: (recipe: RecipeMatch) => void; onAddToGrocery: (items: GroceryItem[]) => void
 }) {
   const best = recipes[0]
@@ -1168,16 +1246,28 @@ function RecommendationPlanner({ recipe, onClose, onPlan }: { recipe: RecipeMatc
   return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal recommendation-planner" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Plan from a recommendation</span><h2>Add {recipe.name}</h2><p>Choose when this meal fits your week.</p></div><button type="button" onClick={onClose} aria-label="Close meal planner"><X /></button></div><div className="recommendation-plan-recipe"><span>{recipe.imageUrl ? <img src={recipe.imageUrl} alt="" /> : recipe.emoji}</span><p><strong>{recipe.name}</strong><small>{recipe.time} min · {recipe.missing.length ? `${recipe.missing.length} missing` : 'Kitchen ready'}</small></p></div><div className="form-row"><label>Date<input type="date" min={today} value={date} onChange={(event) => setDate(event.target.value)} /></label><label>Meal<select value={mealSlot} onChange={(event) => setMealSlot(event.target.value as MealSlot)}>{mealSlots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select></label></div><label>Servings<NumberField min="1" max="24" value={servings} onValueChange={setServings} /></label><button className="submit-button" type="submit"><CalendarDays /> Add to meal plan</button></form></div>
 }
 
-function Kitchen({ inventory, category, setCategory, syncState, isOnline, onRetry, onAdd, onSmartAdd, onEdit, onRestock, onDelete }: { inventory: InventoryItem[]; category: KitchenCategory; setCategory: (category: KitchenCategory) => void; syncState: SyncState; isOnline: boolean; onRetry: () => void; onAdd: () => void; onSmartAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void; onDelete: (item: InventoryItem) => void }) {
+function Kitchen({ inventory, storageAreas, locationId, setLocationId, foodGroup, setFoodGroup, syncState, isOnline, onRetry, onAdd, onEdit, onRestock, onDelete }: { inventory: InventoryItem[]; storageAreas: StorageArea[]; locationId: string; setLocationId: (id: string) => void; foodGroup: KitchenFoodGroup; setFoodGroup: (group: KitchenFoodGroup) => void; syncState: SyncState; isOnline: boolean; onRetry: () => void; onAdd: () => void; onEdit: (item: InventoryItem) => void; onRestock: (item: InventoryItem) => void; onDelete: (item: InventoryItem) => void }) {
   const [query, setQuery] = useState('')
   const [openActions, setOpenActions] = useState<string | null>(null)
-  const filtered = inventory.filter((item) => (category === 'All' || item.category === category) && normalize(item.name).includes(normalize(query)))
-  const categoryCounts = Object.fromEntries(categories.map((option) => [option, inventory.filter((item) => item.category === option).length])) as Record<Category, number>
-  const attentionCount = inventory.filter((item) => {
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const areas = activeStorageAreas(storageAreas)
+  const itemAreaId = (item: InventoryItem) => currentStorageAreaId(item.storageAreaId || item.location.toLowerCase())
+  const searched = inventory.filter((item) => {
+    const profile = getFoodIntelligence(item.name)?.profile
+    const searchable = [item.name, ...(profile?.aliases || [])].join(' ')
+    return normalize(searchable).includes(normalize(query))
+  })
+  const filtered = searched.filter((item) => (locationId === 'all' || itemAreaId(item) === locationId) && (foodGroup === 'All' || item.foodGroup === foodGroup))
+  const locationCounts = Object.fromEntries(areas.map((area) => [area.id, inventory.filter((item) => itemAreaId(item) === area.id).length]))
+  const groupCounts = Object.fromEntries(foodGroups.map((option) => [option, inventory.filter((item) => item.foodGroup === option).length])) as Record<FoodGroup, number>
+  const attentionCount = inventory.filter((item) => item.freshnessPolicy !== 'none' && (() => {
     const days = daysUntilExpiration(item)
     return days !== null && days <= 3
-  }).length
-  const hasFilters = category !== 'All' || query.trim().length > 0
+  })()).length
+  const hasFilters = locationId !== 'all' || foodGroup !== 'All' || query.trim().length > 0
+  const grouped = areas.map((area) => ({ area, items: filtered.filter((item) => itemAreaId(item) === area.id) })).filter((group) => group.items.length)
+  const unassigned = filtered.filter((item) => !areas.some((area) => area.id === itemAreaId(item)))
+  if (unassigned.length) grouped.push({ area: { id: 'other-storage', name: 'Other storage', condition: 'ambient', sortOrder: 999, archivedAt: null }, items: unassigned })
 
   useEffect(() => {
     if (!openActions) return
@@ -1190,26 +1280,31 @@ function Kitchen({ inventory, category, setCategory, syncState, isOnline, onRetr
 
   function clearFilters() {
     setQuery('')
-    setCategory('All')
+    setLocationId('all')
+    setFoodGroup('All')
+  }
+
+  function renderRow(item: InventoryItem) {
+    const menuOpen = openActions === item.id
+    const menuId = `kitchen-actions-${item.id}`
+    const area = storageAreaForId(storageAreas, itemAreaId(item))
+    return <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.foodGroup || item.category}<span className="mobile-item-location"> · {area.name}</span></small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{area.name}</span><Freshness item={item} /><div className="row-actions" onPointerDown={(event) => event.stopPropagation()}><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button more-actions" onClick={() => setOpenActions((current) => current === item.id ? null : item.id)} aria-label={`More actions for ${item.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId}><MoreHorizontal /></button>{menuOpen && <div className="item-action-menu" id={menuId} role="menu"><button role="menuitem" onClick={() => { setOpenActions(null); onEdit(item) }}><Pencil /> Edit ingredient</button><button className="delete" role="menuitem" onClick={() => { setOpenActions(null); onDelete(item) }}><Trash2 /> Delete from kitchen</button></div>}</div></div>
   }
 
   return <section className="inner-page kitchen-page">
-    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>See what is at home, where it is stored, and what needs attention.</p></div><div className="title-actions"><button className="secondary-button" onClick={onSmartAdd}><Sparkles size={17} /> Smart add</button><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
+    <div className="page-title"><div><span className="eyebrow">Your ingredients</span><h1>My kitchen</h1><p>See what is at home, where it is stored, and what needs attention.</p></div><div className="title-actions"><button className="primary-button" onClick={onAdd}><CirclePlus size={18} /> Add ingredients</button></div></div>
     <KitchenSyncNotice state={syncState} isOnline={isOnline} onRetry={onRetry} />
-    <div className="toolbar kitchen-toolbar"><label><Search size={17} /><input aria-label="Search kitchen ingredients" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="filter-tabs" aria-label="Filter ingredients by category">{(['All', ...categories] as const).map((option) => { const count = option === 'All' ? inventory.length : categoryCounts[option]; return <button className={category === option ? 'active' : ''} aria-pressed={category === option} onClick={() => setCategory(option)} key={option}><span>{option}</span><em>{count}</em></button> })}</div></div>
+    <div className="toolbar kitchen-toolbar"><label><Search size={17} /><input aria-label="Search kitchen ingredients" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ingredients…" /></label><div className="location-filter-row"><div className="filter-tabs" aria-label="Filter ingredients by storage area"><button className={locationId === 'all' ? 'active' : ''} aria-pressed={locationId === 'all'} onClick={() => setLocationId('all')}><span>All</span><em>{inventory.length}</em></button>{areas.map((area) => <button className={locationId === area.id ? 'active' : ''} aria-pressed={locationId === area.id} onClick={() => setLocationId(area.id)} key={area.id}><span>{area.name}</span><em>{locationCounts[area.id] || 0}</em></button>)}</div><button className={`food-type-filter${foodGroup !== 'All' ? ' active' : ''}`} onClick={() => setFiltersOpen(true)}><Leaf /> {foodGroup === 'All' ? 'Food type' : foodGroup}</button></div></div>
+    {filtersOpen && <div className="modal-backdrop" onMouseDown={() => setFiltersOpen(false)}><section className="modal food-type-sheet" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><h2>Filter by food type</h2><p>Location remains the main kitchen view.</p></div><button onClick={() => setFiltersOpen(false)} aria-label="Close filters"><X /></button></div><div className="food-type-options"><button className={foodGroup === 'All' ? 'selected' : ''} onClick={() => { setFoodGroup('All'); setFiltersOpen(false) }}><span>All food types</span><em>{inventory.length}</em></button>{foodGroups.map((group) => <button className={foodGroup === group ? 'selected' : ''} onClick={() => { setFoodGroup(group); setFiltersOpen(false) }} key={group}><span>{group}</span><em>{groupCounts[group]}</em></button>)}</div></section></div>}
     <div className="kitchen-result-summary" aria-live="polite"><span><strong>{filtered.length}</strong> {filtered.length === 1 ? 'ingredient' : 'ingredients'} shown</span>{attentionCount > 0 && <span className="attention-summary"><TriangleAlert /> {attentionCount} {attentionCount === 1 ? 'needs' : 'need'} attention</span>}</div>
-    {filtered.length > 0 ? <div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Status</span><span>Stored in</span><span>Freshness</span><span>Actions</span></div>{filtered.map((item) => {
-      const showLocation = normalize(item.category) !== normalize(item.location)
-      const menuOpen = openActions === item.id
-      const menuId = `kitchen-actions-${item.id}`
-      return <div className="inventory-row" key={item.id}><button className="ingredient-cell edit-trigger" onClick={() => onEdit(item)} aria-label={`Edit ${item.name}`}><span>{item.emoji}</span><p><strong>{item.name}</strong><small>{item.category}{showLocation && <span className="mobile-item-location"> · {item.location}</span>}</small></p></button><span className="availability-pill"><Check /> At home</span><span className="location-pill">{item.location}</span><Freshness item={item} /><div className="row-actions" onPointerDown={(event) => event.stopPropagation()}><button className="icon-button restock" onClick={() => onRestock(item)} aria-label={`Move ${item.name} to grocery list`} title="Ran out — restock"><ShoppingBasket /><span className="restock-label">Restock</span></button><button className="icon-button more-actions" onClick={() => setOpenActions((current) => current === item.id ? null : item.id)} aria-label={`More actions for ${item.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId}><MoreHorizontal /></button>{menuOpen && <div className="item-action-menu" id={menuId} role="menu"><button role="menuitem" onClick={() => { setOpenActions(null); onEdit(item) }}><Pencil /> Edit ingredient</button><button className="delete" role="menuitem" onClick={() => { setOpenActions(null); onDelete(item) }}><Trash2 /> Delete from kitchen</button></div>}</div></div>
-    })}</div> : <div className="kitchen-empty panel"><PackageOpen /><strong>{inventory.length ? 'No matching ingredients' : 'Your kitchen is ready to fill'}</strong><p>{inventory.length ? 'Clear the search or category filter to see everything at home.' : 'Add the foods you have once, then simply mark them for restocking when they run out.'}</p><div>{hasFilters && <button className="secondary-button" onClick={clearFilters}>Clear filters</button>}<button className="primary-button" onClick={onAdd}><CirclePlus /> Add ingredients</button></div></div>}
+    {filtered.length > 0 ? <div className="inventory-location-groups">{grouped.map(({ area, items }) => <section className="inventory-location-group" key={area.id}><header><div><h2>{area.name}</h2><span>{area.condition === 'chilled' ? 'Chilled' : area.condition === 'frozen' ? 'Frozen' : 'Room temperature'}</span></div><em>{items.length} item{items.length === 1 ? '' : 's'}</em></header><div className="inventory-table presence-table panel"><div className="table-head"><span>Ingredient</span><span>Status</span><span>Stored in</span><span>Freshness</span><span>Actions</span></div>{items.map(renderRow)}</div></section>)}</div> : <div className="kitchen-empty panel"><PackageOpen /><strong>{inventory.length ? 'No matching ingredients' : 'Your kitchen is ready to fill'}</strong><p>{inventory.length ? 'Clear the search or filters to see everything at home.' : 'Add the foods you have once, then simply mark them for restocking when they run out.'}</p><div>{hasFilters && <button className="secondary-button" onClick={clearFilters}>Clear filters</button>}<button className="primary-button" onClick={onAdd}><CirclePlus /> Add ingredients</button></div></div>}
   </section>
 }
 
 function Freshness({ item }: { item: InventoryItem }) {
+  if (item.freshnessPolicy === 'none') return <span className="freshness neutral no-date" aria-label="Shelf-stable; expiry not tracked">—</span>
   const days = daysUntilExpiration(item)
-  if (days === null) return <span className="freshness neutral">No use-by date</span>
+  if (days === null) return <span className="freshness neutral">Add use-by date</span>
   if (days < 0) return <span className="freshness danger">Expired · {Math.abs(days)}d ago</span>
   if (days <= 1) return <span className="freshness danger">Use {days === 0 ? 'today' : 'tomorrow'}</span>
   if (days <= 3) return <span className="freshness soon">Use soon · {days}d</span>
@@ -1479,8 +1574,8 @@ function ExternalRecipeSheet({ preview, details, loading, isSaved, onClose, onSa
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="external-recipe-sheet" onMouseDown={(event) => event.stopPropagation()}><button className="sheet-close" onClick={onClose} aria-label="Close discovered recipe"><X /></button><div className="external-recipe-image">{preview.image ? <img src={preview.image} alt="" /> : <span>🍽️</span>}<em>Discovered for your kitchen</em></div><div className="external-recipe-body"><span className="eyebrow">Spoonacular recipe</span><h2>{preview.title}</h2>{loading && <div className="discover-loading compact"><RefreshCw className="spin" /> Loading recipe details…</div>}{details && <><div className="sheet-stats"><span><Clock3 /> {details.readyInMinutes || '—'} min</span><span><ChefHat /> {details.servings} servings</span></div><h3>Ingredients</h3><div className="external-ingredients">{details.ingredients.map((item, index) => <div key={`${item.name}-${index}`}><span>{preview.missedIngredients.some((missing) => normalize(missing.name) === normalize(item.name)) ? <Plus /> : <Check />}</span><p><strong>{item.name}</strong><small>{item.original || `${item.amount} ${item.unit}`}</small></p></div>)}</div>{details.instructions.length > 0 && <div className="recipe-steps"><h3>Method</h3><ol>{details.instructions.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}</ol></div>}<div className="external-actions"><button className="save-recipe-button" onClick={onSave} disabled={isSaved}>{isSaved ? <BookmarkCheck /> : <Bookmark />} {isSaved ? 'Saved to your recipes' : 'Save recipe'}</button>{preview.missedIngredientCount > 0 && <button className="submit-button" onClick={onAddMissing}>Add {preview.missedIngredientCount} missing item{preview.missedIngredientCount === 1 ? '' : 's'} <ShoppingBasket /></button>}{details.sourceUrl && <a className="secondary-button" href={details.sourceUrl} target="_blank" rel="noreferrer">View full original recipe <ExternalLink /></a>}</div><p className="spoonacular-credit">Powered by <a href="https://spoonacular.com/food-api" target="_blank" rel="noreferrer">Spoonacular <ExternalLink /></a></p></>}</div></section></div>
 }
 
-function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rememberedProducts, householdId, accessToken, syncState, isOnline, onRetry, setGrocery, setStapleGroups, setStaples, setInventory, onReviewItems, onRememberProducts, notify, offerUndo }: {
-  grocery: GroceryItem[]; newGroceryIds: Set<string>; stapleGroups: GroceryStapleGroup[]; staples: GroceryStaple[]; inventory: InventoryItem[]; rememberedProducts: HouseholdProduct[];
+function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, storageAreas, rememberedProducts, householdId, accessToken, syncState, isOnline, onRetry, setGrocery, setStapleGroups, setStaples, setInventory, onReviewItems, onRememberProducts, notify, offerUndo }: {
+  grocery: GroceryItem[]; newGroceryIds: Set<string>; stapleGroups: GroceryStapleGroup[]; staples: GroceryStaple[]; inventory: InventoryItem[]; storageAreas: StorageArea[]; rememberedProducts: HouseholdProduct[];
   householdId: string | null; accessToken: string; syncState: SyncState; isOnline: boolean; onRetry: () => void;
   setGrocery: React.Dispatch<React.SetStateAction<GroceryItem[]>>; setStapleGroups: React.Dispatch<React.SetStateAction<GroceryStapleGroup[]>>;
   setStaples: React.Dispatch<React.SetStateAction<GroceryStaple[]>>; setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
@@ -1585,7 +1680,7 @@ function Grocery({ grocery, newGroceryIds, stapleGroups, staples, inventory, rem
     {editing && <GroceryItemEditor item={editing.item} onClose={() => setEditing(null)} onSave={saveEditedItem} />}
     {adding && <GroceryItemEditor item={{ name: '', amount: 1, unit: 'item', checked: false }} mode="add" onClose={() => setAdding(false)} onSave={saveNewItem} />}
     {aisleEditorOpen && <AisleOrderEditor order={aisleOrder} onChange={setAisleOrder} onClose={() => setAisleEditorOpen(false)} />}
-    {purchaseReviewOpen && <PurchaseReview items={grocery.filter((item) => item.checked)} inventory={inventory} rememberedProducts={rememberedProducts} householdId={householdId} accessToken={accessToken} isOnline={isOnline} onClose={() => setPurchaseReviewOpen(false)} onConfirm={moveCheckedToKitchen} />}
+    {purchaseReviewOpen && <PurchaseReview items={grocery.filter((item) => item.checked)} inventory={inventory} storageAreas={storageAreas} rememberedProducts={rememberedProducts} householdId={householdId} accessToken={accessToken} isOnline={isOnline} onClose={() => setPurchaseReviewOpen(false)} onConfirm={moveCheckedToKitchen} />}
     {staplesOpen && <StaplesManager groups={stapleGroups} staples={staples} setGroups={setStapleGroups} setStaples={setStaples} onAddToGrocery={(items) => onReviewItems(groceryFromStaples(items), 'staples')} onClose={() => setStaplesOpen(false)} notify={notify} offerUndo={offerUndo} />}
   </section>
 }
@@ -1602,15 +1697,15 @@ function AisleOrderEditor({ order, onChange, onClose }: { order: Category[]; onC
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal aisle-order-editor" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Match your store</span><h2>Aisle order</h2><p>Arrange categories in the order you usually walk through the store.</p></div><button onClick={onClose} aria-label="Close aisle order"><X /></button></div><ol>{order.map((category, index) => <li key={category}><span>{index + 1}</span><strong>{category}</strong><div><button disabled={index === 0} onClick={() => move(category, -1)} aria-label={`Move ${category} up`}><ArrowUp /></button><button disabled={index === order.length - 1} onClick={() => move(category, 1)} aria-label={`Move ${category} down`}><ArrowDown /></button></div></li>)}</ol><button className="submit-button" onClick={onClose}>Save aisle order <Check /></button></section></div>
 }
 
-function PurchaseReview({ items, inventory, rememberedProducts, householdId, accessToken, isOnline, onClose, onConfirm }: {
-  items: GroceryItem[]; inventory: InventoryItem[]; rememberedProducts: HouseholdProduct[]; householdId: string | null; accessToken: string; isOnline: boolean;
+function PurchaseReview({ items, inventory, storageAreas, rememberedProducts, householdId, accessToken, isOnline, onClose, onConfirm }: {
+  items: GroceryItem[]; inventory: InventoryItem[]; storageAreas: StorageArea[]; rememberedProducts: HouseholdProduct[]; householdId: string | null; accessToken: string; isOnline: boolean;
   onClose: () => void; onConfirm: (items: GroceryItem[]) => void
 }) {
   const [drafts, setDrafts] = useState<GroceryPurchaseDraft[]>(() => items.map((item) => {
     const profile = getFoodIntelligence(item.name)?.profile
     return {
       ...item,
-      purchase: item.purchase || { packageCount: 1, packageSize: item.amount, packageUnit: item.unit, location: profile?.location || 'Pantry', expiresOn: expirationDateFromDays(profile?.shelfLifeDays ?? null) },
+      purchase: item.purchase || { packageCount: 1, packageSize: item.amount, packageUnit: item.unit, location: profile?.location || 'Pantry', foodGroup: profile?.foodGroup || 'Other', storageAreaId: profile?.storageAreaId || 'pantry', freshnessPolicy: profile?.freshnessPolicy || 'none', expiresOn: profile?.freshnessPolicy === 'tracked' ? expirationDateFromDays(profile.shelfLifeDays) : null },
     }
   }))
   const [scanTarget, setScanTarget] = useState<number | null | 'auto'>(null)
@@ -1626,7 +1721,7 @@ function PurchaseReview({ items, inventory, rememberedProducts, householdId, acc
     setScanTarget(null)
   }
   const valid = drafts.length > 0
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal purchase-review" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Put groceries away</span><h2>Add purchases to your kitchen</h2><p>No quantities needed. Confirm where each ingredient belongs, or scan a barcode to remember the product.</p></div><button onClick={onClose} aria-label="Close purchase review"><X /></button></div><button type="button" className="purchase-scan-all" onClick={() => setScanTarget('auto')}><Camera /> Scan a purchased item <span>Optional · match it to this list automatically</span><ArrowRight /></button><div className="purchase-review-list">{drafts.map((item, index) => <article key={`${item.name}-${item.unit}-${index}`}><div className="purchase-item-heading"><span>{item.purchase.productImageUrl ? <img src={item.purchase.productImageUrl} alt="" /> : groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>Available at home{item.purchase.brand ? ` · ${item.purchase.brand}` : ''}</small></p><button type="button" className="purchase-item-scan" onClick={() => setScanTarget(index)}><Camera /> Scan</button></div><div className="purchase-fields presence-fields"><label>Store in<select value={item.purchase.location || 'Pantry'} onChange={(event) => update(index, { location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use-by date (optional)<input type="date" value={item.purchase.expiresOn || ''} onChange={(event) => update(index, { expiresOn: event.target.value || null })} /></label></div>{item.purchase.barcode && <div className="purchase-barcode"><Check /> Product remembered · {item.purchase.barcode}</div>}</article>)}</div><button className="submit-button" disabled={!valid} onClick={() => onConfirm(drafts)}><PackageOpen /> Add purchases to kitchen</button>{scanTarget !== null && <PurchaseBarcodeCapture items={drafts} targetIndex={scanTarget === 'auto' ? null : scanTarget} inventory={inventory} rememberedProducts={rememberedProducts} householdId={householdId} accessToken={accessToken} isOnline={isOnline} onApply={applyScan} onAddUnplanned={addUnplanned} onClose={() => setScanTarget(null)} />}</section></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal purchase-review" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Put groceries away</span><h2>Add purchases to your kitchen</h2><p>No quantities needed. Confirm where each ingredient belongs, or scan a barcode to remember the product.</p></div><button onClick={onClose} aria-label="Close purchase review"><X /></button></div><button type="button" className="purchase-scan-all" onClick={() => setScanTarget('auto')}><Camera /> Scan a purchased item <span>Optional · match it to this list automatically</span><ArrowRight /></button><div className="purchase-review-list">{drafts.map((item, index) => <article key={`${item.name}-${item.unit}-${index}`}><div className="purchase-item-heading"><span>{item.purchase.productImageUrl ? <img src={item.purchase.productImageUrl} alt="" /> : groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>Available at home{item.purchase.brand ? ` · ${item.purchase.brand}` : ''}</small></p><button type="button" className="purchase-item-scan" onClick={() => setScanTarget(index)}><Camera /> Scan</button></div><div className="purchase-fields presence-fields"><label>Food type<select value={item.purchase.foodGroup || 'Other'} onChange={(event) => update(index, { foodGroup: event.target.value as FoodGroup })}>{foodGroups.map((group) => <option key={group}>{group}</option>)}</select></label><label>Store in<select value={item.purchase.storageAreaId || 'pantry'} onChange={(event) => { const area = storageAreaForId(storageAreas, event.target.value); update(index, { storageAreaId: area.id, location: legacyLocationForCondition(area.condition) }) }}>{activeStorageAreas(storageAreas).map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select></label><label>Freshness<select value={item.purchase.freshnessPolicy || 'none'} onChange={(event) => { const freshnessPolicy = event.target.value as FreshnessPolicy; update(index, { freshnessPolicy, expiresOn: freshnessPolicy === 'none' ? null : item.purchase.expiresOn }) }}><option value="tracked">Track date</option><option value="none">No date needed</option></select></label>{item.purchase.freshnessPolicy !== 'none' && <label>Use-by date (optional)<input type="date" value={item.purchase.expiresOn || ''} onChange={(event) => update(index, { expiresOn: event.target.value || null })} /></label>}</div>{item.purchase.barcode && <div className="purchase-barcode"><Check /> Product remembered · {item.purchase.barcode}</div>}</article>)}</div><button className="submit-button" disabled={!valid} onClick={() => onConfirm(drafts)}><PackageOpen /> Add purchases to kitchen</button>{scanTarget !== null && <PurchaseBarcodeCapture items={drafts} targetIndex={scanTarget === 'auto' ? null : scanTarget} inventory={inventory} rememberedProducts={rememberedProducts} householdId={householdId} accessToken={accessToken} isOnline={isOnline} onApply={applyScan} onAddUnplanned={addUnplanned} onClose={() => setScanTarget(null)} />}</section></div>
 }
 
 function PurchaseBarcodeCapture({ items, targetIndex, inventory, rememberedProducts, householdId, accessToken, isOnline, onApply, onAddUnplanned, onClose }: {
@@ -1847,10 +1942,10 @@ function GroceryItemEditor({ item, mode = 'edit', onClose, onSave }: { item: Gro
   return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal grocery-editor" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">Grocery List 2.1</span><h2>{mode === 'add' ? 'Add grocery item' : 'Edit grocery item'}</h2></div><button type="button" onClick={onClose} aria-label="Close grocery item editor"><X /></button></div><div className="grocery-edit-preview"><span>{groceryEmoji({ name })}</span><p><strong>{name || 'Grocery item'}</strong><small>{groceryCategory({ name })} aisle</small></p></div><label>Item name<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Milk" /></label><div className="form-row"><label>Quantity<NumberField min="0.01" step="0.01" value={amount} onValueChange={setAmount} /></label><label>Unit<UnitPicker value={unit} onChange={setUnit} ariaLabel="Grocery item unit" required /></label></div><button className="submit-button" type="submit">{mode === 'add' ? 'Add to grocery list' : 'Save changes'} <ArrowRight /></button></form></div>
 }
 
-function SettingsPage({ session, householdId, displayName, preferences, reminderPreferences, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onUpdateReminderPreferences, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
-  session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; reminderPreferences: MealReminderPreferences; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
+function SettingsPage({ session, householdId, displayName, preferences, reminderPreferences, storageAreas, inventory, syncState, isOnline, inventoryCount, groceryCount, onRetry, onResetPassword, onUpdateName, onUpdatePreferences, onUpdateReminderPreferences, onUpdateStorageAreas, onArchiveStorageArea, onActivateHousehold, onJoinHousehold, onOpenFeedback, onSignOut }: {
+  session: Session | null; householdId: string | null; displayName: string; preferences: FoodPreferences; reminderPreferences: MealReminderPreferences; storageAreas: StorageArea[]; inventory: InventoryItem[]; syncState: SyncState; isOnline: boolean; inventoryCount: number; groceryCount: number;
   onRetry: () => void; onResetPassword: () => Promise<void>; onUpdateName: (name: string) => Promise<void>; onUpdatePreferences: (preferences: FoodPreferences) => Promise<void>;
-  onUpdateReminderPreferences: React.Dispatch<React.SetStateAction<MealReminderPreferences>>; onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
+  onUpdateReminderPreferences: React.Dispatch<React.SetStateAction<MealReminderPreferences>>; onUpdateStorageAreas: (areas: StorageArea[]) => Promise<void>; onArchiveStorageArea: (areaId: string, replacementId: string) => Promise<void>; onActivateHousehold: (householdId: string) => Promise<void>; onJoinHousehold: (code: string) => Promise<void>; onOpenFeedback: () => void; onSignOut: () => Promise<void>
 }) {
   const [settingsArea, setSettingsArea] = useState<SettingsArea>('general')
   const [name, setName] = useState(displayName)
@@ -2068,6 +2163,7 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
         <div className="reminder-time-grid">{mealSlots.map((slot) => <label key={slot.value}>{slot.label}<input type="time" disabled={!reminderPreferences.enabled} value={reminderPreferences.times[slot.value]} onChange={(event) => onUpdateReminderPreferences((current) => ({ ...current, times: { ...current.times, [slot.value]: event.target.value } }))} /></label>)}</div>
         <p className="reminder-privacy">These times stay on this device. No paid notification or tracking service is used.</p>
       </article>
+      <StorageAreaManager areas={storageAreas} inventory={inventory} hidden={settingsArea !== 'general'} onChange={onUpdateStorageAreas} onArchive={onArchiveStorageArea} />
       <article className="settings-card shared-kitchen-card panel" hidden={settingsArea !== 'household'}>
         <div className="settings-card-head"><span><UsersRound /></span><div><h2>Shared kitchen</h2><p>Plan, shop, and manage ingredients with the people you live with.</p></div></div>
         {session && householdId ? <div className="shared-kitchen-layout">
@@ -2107,7 +2203,64 @@ function SettingsPage({ session, householdId, displayName, preferences, reminder
   </section>
 }
 
-function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: InventoryItem[]; onClose: () => void; onScanBarcode: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
+function StorageAreaNameInput({ area, onCommit }: { area: StorageArea; onCommit: (name: string) => void }) {
+  const [draft, setDraft] = useState(area.name)
+  // The parent may rename or restore this shared location from another device.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setDraft(area.name), [area.name])
+  function commit() {
+    const next = draft.trim()
+    if (!next) setDraft(area.name)
+    else if (next !== area.name) onCommit(next)
+  }
+  return <input aria-label={`Name for ${area.name}`} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { setDraft(area.name); event.currentTarget.blur() } }} />
+}
+
+function StorageAreaManager({ areas, inventory, hidden, onChange, onArchive }: { areas: StorageArea[]; inventory: InventoryItem[]; hidden: boolean; onChange: (areas: StorageArea[]) => Promise<void>; onArchive: (areaId: string, replacementId: string) => Promise<void> }) {
+  const [name, setName] = useState('')
+  const [condition, setCondition] = useState<StorageCondition>('ambient')
+  const [archiving, setArchiving] = useState<string | null>(null)
+  const [replacement, setReplacement] = useState('')
+  const [working, setWorking] = useState(false)
+  const [manageOpen, setManageOpen] = useState(false)
+  const ordered = [...areas].sort((a, b) => a.sortOrder - b.sortOrder)
+  const active = activeStorageAreas(ordered)
+  async function save(next: StorageArea[]) { setWorking(true); try { await onChange(next.map((area, index) => ({ ...area, sortOrder: index }))) } finally { setWorking(false) } }
+  async function addArea() {
+    if (!name.trim()) return
+    const duplicate = areas.find((area) => normalize(area.name) === normalize(name))
+    if (duplicate) { if (duplicate.archivedAt) await save(areas.map((area) => area.id === duplicate.id ? { ...area, archivedAt: null, condition } : area)); setName(''); return }
+    await save([...areas, { id: `custom-${crypto.randomUUID()}`, name: name.trim(), condition, sortOrder: areas.length, archivedAt: null }]); setName('')
+  }
+  function patchArea(id: string, updates: Partial<StorageArea>) { void save(areas.map((area) => area.id === id ? { ...area, ...updates } : area)) }
+  function move(id: string, direction: -1 | 1) {
+    const current = active.findIndex((area) => area.id === id); const swap = current + direction
+    if (current < 0 || swap < 0 || swap >= active.length) return
+    const reordered = [...active]; [reordered[current], reordered[swap]] = [reordered[swap], reordered[current]]
+    void save([...reordered, ...ordered.filter((area) => area.archivedAt)])
+  }
+  async function confirmArchive(area: StorageArea) {
+    if (active.length <= 1) return
+    const used = inventory.some((item) => item.storageAreaId === area.id)
+    const target = used ? replacement : active.find((candidate) => candidate.id !== area.id)?.id || ''
+    if (used && !target) return
+    setWorking(true); try { await onArchive(area.id, target); setArchiving(null); setReplacement('') } finally { setWorking(false) }
+  }
+  const countFor = (area: StorageArea) => inventory.filter((item) => currentStorageAreaId(item.storageAreaId || item.location.toLowerCase()) === area.id).length
+  const conditionLabel = (area: StorageArea) => area.condition === 'chilled' ? 'Chilled' : area.condition === 'frozen' ? 'Frozen' : 'Room temperature'
+  return <article className="settings-card storage-area-card panel" hidden={hidden}>
+    <div className="settings-card-head"><span><House /></span><div><h2>Kitchen locations</h2><p>Four simple places cover most kitchens. Mise chooses one automatically when it recognizes a food.</p></div></div>
+    {!manageOpen && <div className="storage-area-summary">{active.map((area) => <div key={area.id}><strong>{area.name}</strong><small>{conditionLabel(area)}</small><span>{countFor(area)} item{countFor(area) === 1 ? '' : 's'}</span></div>)}</div>}
+    <button type="button" className="storage-manage-toggle" onClick={() => setManageOpen((open) => !open)}><Pencil /> {manageOpen ? 'Done managing' : 'Manage locations'}</button>
+    {manageOpen && <div className="storage-area-management">
+      <div className="storage-area-list">{active.map((area, index) => { const inUse = countFor(area); return <div className="storage-area-row" key={area.id}><StorageAreaNameInput area={area} onCommit={(name) => patchArea(area.id, { name })} /><select aria-label={`Condition for ${area.name}`} value={area.condition} onChange={(event) => patchArea(area.id, { condition: event.target.value as StorageCondition })}><option value="ambient">Room temperature</option><option value="chilled">Chilled</option><option value="frozen">Frozen</option></select><span>{inUse} item{inUse === 1 ? '' : 's'}</span><div><button type="button" disabled={index === 0 || working} onClick={() => move(area.id, -1)} aria-label={`Move ${area.name} up`}><ArrowUp /></button><button type="button" disabled={index === active.length - 1 || working} onClick={() => move(area.id, 1)} aria-label={`Move ${area.name} down`}><ArrowDown /></button><button type="button" disabled={active.length <= 1 || working} onClick={() => setArchiving(area.id)} aria-label={`Archive ${area.name}`}><Trash2 /></button></div>{archiving === area.id && <div className="storage-archive-confirm">{inUse > 0 && <label>Move {inUse} item{inUse === 1 ? '' : 's'} to<select value={replacement} onChange={(event) => setReplacement(event.target.value)}><option value="">Choose a location</option>{active.filter((candidate) => candidate.id !== area.id).map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.name}</option>)}</select></label>}<p>Archive {area.name}? You can restore it later.</p><button type="button" onClick={() => setArchiving(null)}>Cancel</button><button type="button" disabled={inUse > 0 && !replacement} onClick={() => void confirmArchive(area)}>Archive</button></div>}</div>})}</div>
+      <div className="storage-area-add"><label>New location<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Garage freezer" /></label><label>Condition<select value={condition} onChange={(event) => setCondition(event.target.value as StorageCondition)}><option value="ambient">Room temperature</option><option value="chilled">Chilled</option><option value="frozen">Frozen</option></select></label><button type="button" className="secondary-button" disabled={!name.trim() || working} onClick={() => void addArea()}><Plus /> Add location</button></div>
+      {ordered.some((area) => area.archivedAt && area.id !== 'counter') && <div className="archived-storage-areas"><strong>Archived</strong>{ordered.filter((area) => area.archivedAt && area.id !== 'counter').map((area) => <button type="button" key={area.id} onClick={() => patchArea(area.id, { archivedAt: null })}>{area.name} <span>Restore</span></button>)}</div>}
+    </div>}
+  </article>
+}
+
+function SmartAdd({ inventory, storageAreas, onClose, onScanBarcode, onAdd }: { inventory: InventoryItem[]; storageAreas: StorageArea[]; onClose: () => void; onScanBarcode: () => void; onAdd: (items: SmartReviewItem[]) => void }) {
   const [entry, setEntry] = useState('2 lb chicken breast, a bag of spinach, 6 eggs')
   const [items, setItems] = useState<SmartReviewItem[]>([])
   const [ignoredReceiptLines, setIgnoredReceiptLines] = useState<string[]>([])
@@ -2181,7 +2334,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
     const duplicate = inventory.find((existing) => sameFoodAndUnit(existing, item))
     return <article className="smart-review-card" key={item.id}>
       <div className="smart-review-main"><button type="button" className="smart-emoji" onClick={() => { const current = foodIcons.indexOf(item.emoji); updateItem(item.id, { emoji: foodIcons[(current + 1 + foodIcons.length) % foodIcons.length] }) }} title="Change icon" aria-label={`Change icon for ${item.name}`}>{item.emoji}</button><label>Name<input aria-label={`Name for ${item.name}`} value={item.name} onChange={(event) => updateItem(item.id, { name: event.target.value })} /></label><button type="button" className="icon-button delete" onClick={() => setItems((current) => current.filter((entryItem) => entryItem.id !== item.id))} aria-label={`Remove ${item.name}`}><X /></button></div>
-      <div className="smart-review-fields presence-fields"><label>Category<select aria-label={`Category for ${item.name}`} value={item.category} onChange={(event) => updateItem(item.id, { category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.location} onChange={(event) => { const nextLocation = event.target.value as Location; updateItem(item.id, { location: nextLocation, expirationWarning: expirationWarning(item.expiresOn, getFoodIntelligence(item.name)?.profile, nextLocation) }) }}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label><label>Use by (optional)<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => { const nextDate = event.target.value || null; updateItem(item.id, { expiresOn: nextDate, expiresIn: daysUntilDate(nextDate), expirationWarning: expirationWarning(nextDate, getFoodIntelligence(item.name)?.profile, item.location) }) }} /></label></div><div className={`smart-confidence ${item.confidence}`}><Sparkles size={12} /> {item.explanation}</div>
+      <div className="smart-review-fields presence-fields"><label>Food type<select aria-label={`Food type for ${item.name}`} value={item.foodGroup || 'Other'} onChange={(event) => { const foodGroup = event.target.value as FoodGroup; updateItem(item.id, { foodGroup, category: legacyCategoryForFoodGroup(foodGroup) }) }}>{foodGroups.map((group) => <option key={group}>{group}</option>)}</select></label><label>Stored in<select aria-label={`Storage for ${item.name}`} value={item.storageAreaId || 'pantry'} onChange={(event) => { const area = storageAreaForId(storageAreas, event.target.value); const location = legacyLocationForCondition(area.condition); updateItem(item.id, { storageAreaId: area.id, location, expirationWarning: item.freshnessPolicy === 'none' ? null : expirationWarning(item.expiresOn, getFoodIntelligence(item.name)?.profile, location) }) }}>{activeStorageAreas(storageAreas).map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select></label><label>Freshness<select value={item.freshnessPolicy || 'none'} onChange={(event) => { const freshnessPolicy = event.target.value as FreshnessPolicy; updateItem(item.id, { freshnessPolicy, expiresOn: freshnessPolicy === 'none' ? null : item.expiresOn, expiresIn: freshnessPolicy === 'none' ? null : item.expiresIn }) }}><option value="tracked">Track date</option><option value="none">No date needed</option></select></label>{item.freshnessPolicy !== 'none' && <label>Use by (optional)<input aria-label={`Use-by date for ${item.name}`} type="date" value={item.expiresOn || ''} onChange={(event) => { const nextDate = event.target.value || null; updateItem(item.id, { expiresOn: nextDate, expiresIn: daysUntilDate(nextDate), expirationWarning: expirationWarning(nextDate, getFoodIntelligence(item.name)?.profile, item.location) }) }} /></label>}</div><div className={`smart-confidence ${item.confidence}`}><Sparkles size={12} /> {item.explanation}</div>
       {item.expirationWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {item.expirationWarning}</div>}
       {duplicate && <label className="duplicate-choice"><input type="checkbox" checked={item.merge} onChange={(event) => updateItem(item.id, { merge: event.target.checked })} /><span><strong>Already in your kitchen</strong>{item.merge ? 'Refresh its details and keep one ingredient' : 'Keep this as a separate item'}</span></label>}
     </article>
@@ -2206,7 +2359,7 @@ function SmartAdd({ inventory, onClose, onScanBarcode, onAdd }: { inventory: Inv
   </section></div>
 }
 
-function BarcodeScanner({ inventory, rememberedProducts, householdId, accessToken, isOnline, onClose, onAdd }: { inventory: InventoryItem[]; rememberedProducts: HouseholdProduct[]; householdId: string | null; accessToken: string; isOnline: boolean; onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
+function BarcodeScanner({ inventory, storageAreas, rememberedProducts, householdId, accessToken, isOnline, onClose, onAdd }: { inventory: InventoryItem[]; storageAreas: StorageArea[]; rememberedProducts: HouseholdProduct[]; householdId: string | null; accessToken: string; isOnline: boolean; onClose: () => void; onAdd: (items: InventoryItem[]) => void }) {
   const [phase, setPhase] = useState<'start' | 'camera' | 'lookup' | 'review'>('start')
   const [barcode, setBarcode] = useState('')
   const [message, setMessage] = useState('')
@@ -2346,7 +2499,7 @@ function BarcodeScanner({ inventory, rememberedProducts, householdId, accessToke
 
   const duplicate = draft ? inventory.find((item) => sameFoodAndUnit(item, draft)) : null
   const queuedDuplicate = draft ? rememberedInventoryProduct(queue, draft.barcode || '') : null
-  const dateWarning = draft ? expirationWarning(draft.expiresOn, getFoodIntelligence(draft.name)?.profile, draft.location) : null
+  const dateWarning = draft?.freshnessPolicy !== 'none' && draft ? expirationWarning(draft.expiresOn, getFoodIntelligence(draft.name)?.profile, draft.location) : null
 
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal barcode-modal" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-head"><div><span className="eyebrow"><Camera size={12} /> Smart Entry</span><h2>{queue.length ? `Scan list · ${queue.length}` : 'Scan products'}</h2></div><button type="button" onClick={() => { stopCamera(); onClose() }} aria-label="Close barcode scanner"><X /></button></div>
@@ -2361,9 +2514,10 @@ function BarcodeScanner({ inventory, rememberedProducts, householdId, accessToke
     {phase === 'review' && draft && product && <form className="barcode-review" onSubmit={(event) => { event.preventDefault(); saveBatch(queuedWithDraft()) }}>
       <div className="product-preview">{draft.productImageUrl ? <img src={draft.productImageUrl} alt="" /> : <span>{draft.emoji}</span>}<div><small>{draft.brand || (draft.productSource === 'household' ? 'Household product' : 'Open Food Facts')}</small><strong>{product.name}</strong><em>{barcode}</em></div><button type="button" onClick={() => resetProduct()}>Scan a different code</button></div>
       <div className="barcode-status ready">{message}</div>
-      <label>Ingredient name<input autoFocus required value={draft.name} onChange={(event) => { const name = event.target.value; const intelligence = getFoodIntelligence(name); updateDraft({ name, ...(intelligence ? { emoji: intelligence.profile.emoji, category: intelligence.profile.category, location: intelligence.profile.location } : {}) }) }} /></label>
-      <div className="form-row"><label>Category<select value={draft.category} onChange={(event) => updateDraft({ category: event.target.value as Category })}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label><label>Stored in<select value={draft.location} onChange={(event) => updateDraft({ location: event.target.value as Location })}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div>
-      <label>Use-by date (optional)<input type="date" value={draft.expiresOn || ''} onChange={(event) => updateDraft({ expiresOn: event.target.value || null })} /></label>
+      <label>Ingredient name<input autoFocus required value={draft.name} onChange={(event) => { const name = event.target.value; const intelligence = getFoodIntelligence(name); updateDraft({ name, ...(intelligence ? { emoji: intelligence.profile.emoji, category: intelligence.profile.category, location: intelligence.profile.location, foodGroup: intelligence.profile.foodGroup, storageAreaId: intelligence.profile.storageAreaId, freshnessPolicy: intelligence.profile.freshnessPolicy, expiresOn: intelligence.profile.freshnessPolicy === 'none' ? null : draft.expiresOn } : {}) }) }} /></label>
+      <div className="form-row"><label>Food type<select value={draft.foodGroup || 'Other'} onChange={(event) => { const foodGroup = event.target.value as FoodGroup; updateDraft({ foodGroup, category: legacyCategoryForFoodGroup(foodGroup) }) }}>{foodGroups.map((group) => <option key={group}>{group}</option>)}</select></label><label>Stored in<select value={draft.storageAreaId || 'pantry'} onChange={(event) => { const area = storageAreaForId(storageAreas, event.target.value); updateDraft({ storageAreaId: area.id, location: legacyLocationForCondition(area.condition) }) }}>{activeStorageAreas(storageAreas).map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}</select></label></div>
+      <label>Freshness<select value={draft.freshnessPolicy || 'none'} onChange={(event) => { const freshnessPolicy = event.target.value as FreshnessPolicy; updateDraft({ freshnessPolicy, expiresOn: freshnessPolicy === 'none' ? null : draft.expiresOn, expiresIn: freshnessPolicy === 'none' ? null : draft.expiresIn }) }}><option value="tracked">Track a use-by date</option><option value="none">No date needed</option></select></label>
+      {draft.freshnessPolicy !== 'none' && <label>Use-by date (optional)<input type="date" value={draft.expiresOn || ''} onChange={(event) => updateDraft({ expiresOn: event.target.value || null })} /></label>}
       {draft.packageAmount && draft.packageUnit && <p className="package-note">Package details are remembered for future scans, but Mise only tracks that this ingredient is available.</p>}
       {dateWarning && <div className="expiration-warning"><TriangleAlert /> {dateWarning}</div>}
       {duplicate && <div className="duplicate-product"><Copy /><span><strong>Already in your kitchen</strong>This will refresh the saved details for {duplicate.name}.</span></div>}
@@ -2448,29 +2602,70 @@ function CookingCompletion({ recipe, scale, inventory, onClose, onComplete }: { 
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal cooking-completion" onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><span className="eyebrow"><CookingPot /> Finish cooking</span><h2>What ran out?</h2><p>Select only ingredients that are gone or need restocking. Everything else stays in your kitchen.</p></div><button onClick={onClose} aria-label="Close cooking update"><X /></button></div><div className="cooking-restock-list">{drafts.map((item, index) => { const checked = selected.has(normalize(item.name)); return <article className={checked ? 'selected' : ''} key={`${item.name}-${index}`}><button className="restock-check" onClick={() => toggle(item.name)} aria-pressed={checked}>{checked ? <Check /> : <Plus />}</button><span>{groceryEmoji(item)}</span><p><strong>{item.name}</strong><small>{checked ? 'Remove from kitchen and add to groceries' : 'Still available at home'}</small></p>{checked && <><NumberField aria-label={`Restock amount for ${item.name}`} min="0.01" step="0.01" value={item.amount} onValueChange={(amount) => update(index, { amount })} /><UnitPicker value={item.unit} onChange={(unit) => update(index, { unit })} ariaLabel={`Restock unit for ${item.name}`} required /></>}</article>})}</div><button className="submit-button" onClick={() => onComplete(restock)}><Check /> Finish cooking{restock.length ? ` & restock ${restock.length}` : ''}</button></section></div>
 }
 
-function AddFood({ onClose, onAdd, initialItem }: { onClose: () => void; onAdd: (item: InventoryItem) => void; initialItem?: InventoryItem }) {
+function AddFood({ storageAreas, onCreateStorageArea, onClose, onAdd, initialItem }: { storageAreas: StorageArea[]; onCreateStorageArea: (name: string, condition: StorageCondition) => Promise<StorageArea>; onClose: () => void; onAdd: (item: InventoryItem) => void; initialItem?: InventoryItem }) {
   const [name, setName] = useState(initialItem?.name || '')
-  const [emoji, setEmoji] = useState(initialItem?.emoji || '🥑')
-  const [category, setCategory] = useState<Category>(initialItem?.category || 'Produce')
-  const [location, setLocation] = useState<Location>(initialItem?.location || 'Fridge')
-  const [expiresOn, setExpiresOn] = useState(initialItem ? (initialItem.expiresOn || expirationDateFromDays(initialItem.expiresIn) || '') : (expirationDateFromDays(7) || ''))
+  const [emoji, setEmoji] = useState(initialItem?.emoji || defaultIngredientIcon)
+  const initialIntelligence = initialItem ? getFoodIntelligence(initialItem.name) : null
+  const [foodGroup, setFoodGroup] = useState<FoodGroup>(initialItem?.foodGroup || initialIntelligence?.profile.foodGroup || 'Other')
+  const [storageAreaId, setStorageAreaId] = useState(initialItem?.storageAreaId || initialIntelligence?.profile.storageAreaId || 'pantry')
+  const [freshnessPolicy, setFreshnessPolicy] = useState<FreshnessPolicy>(initialItem?.freshnessPolicy || initialIntelligence?.profile.freshnessPolicy || 'none')
+  const [expiresOn, setExpiresOn] = useState(initialItem ? (initialItem.expiresOn || expirationDateFromDays(initialItem.expiresIn) || '') : '')
   const [freshnessState, setFreshnessState] = useState<FreshnessState>('purchased')
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(initialItem))
+  const [detailsTouched, setDetailsTouched] = useState(Boolean(initialItem))
+  const [newLocationOpen, setNewLocationOpen] = useState(false)
+  const [newLocationName, setNewLocationName] = useState('')
+  const [newLocationCondition, setNewLocationCondition] = useState<StorageCondition>('ambient')
+  const [creatingLocation, setCreatingLocation] = useState(false)
   const intelligence = useMemo(() => getFoodIntelligence(name), [name])
-  const dateWarning = useMemo(() => expirationWarning(expiresOn, intelligence?.profile, location), [expiresOn, intelligence, location])
-  function applyIntelligence() {
-    if (!intelligence) return
+  const activeAreas = activeStorageAreas(storageAreas)
+  const selectedArea = storageAreaForId(storageAreas, storageAreaId)
+  const hasName = Boolean(name.trim())
+  const summaryTitle = intelligence?.profile.name || (hasName ? name.trim() : 'Ingredient details')
+  const summaryDescription = hasName
+    ? `${foodGroup} · ${selectedArea.name} · ${freshnessLabel(freshnessPolicy)}`
+    : 'Enter a food name and Mise will suggest the details.'
+  const legacyLocation = legacyLocationForCondition(selectedArea.condition)
+  const dateWarning = useMemo(() => freshnessPolicy === 'tracked' ? expirationWarning(expiresOn, intelligence?.profile, legacyLocation) : null, [expiresOn, freshnessPolicy, intelligence, legacyLocation])
+  const suggestedDate = intelligence?.profile.freshnessPolicy === 'tracked' ? suggestedExpirationDate(intelligence.profile, legacyLocation, freshnessState) : null
+  useEffect(() => {
+    if (initialItem || detailsTouched || !intelligence) return
     const profile = intelligence.profile
-    setName(profile.name)
+    const preferred = storageAreas.find((area) => !area.archivedAt && area.id === profile.storageAreaId) || activeStorageAreas(storageAreas).find((area) => area.condition === (profile.location === 'Fridge' ? 'chilled' : profile.location === 'Freezer' ? 'frozen' : 'ambient'))
+    // Keep the name-first flow instant: recognized foods populate their editable draft metadata.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEmoji(profile.emoji)
-    setCategory(profile.category)
-    setLocation(profile.location)
-    setExpiresOn(suggestedExpirationDate(profile, profile.location, freshnessState) || '')
+    setFoodGroup(profile.foodGroup)
+    if (preferred) setStorageAreaId(preferred.id)
+    setFreshnessPolicy(profile.freshnessPolicy)
+    setExpiresOn(profile.freshnessPolicy === 'tracked' ? suggestedExpirationDate(profile, legacyLocationForCondition(preferred?.condition || 'ambient'), freshnessState) || '' : '')
+  }, [detailsTouched, freshnessState, initialItem, intelligence, storageAreas])
+  function updateName(value: string) {
+    setName(value)
+    if (initialItem || detailsTouched || getFoodIntelligence(value)) return
+    setEmoji(defaultIngredientIcon)
+    setFoodGroup('Other')
+    setStorageAreaId('pantry')
+    setFreshnessPolicy('none')
+    setExpiresOn('')
+  }
+  async function createLocation() {
+    if (!newLocationName.trim()) return
+    setCreatingLocation(true)
+    try {
+      const area = await onCreateStorageArea(newLocationName, newLocationCondition)
+      setStorageAreaId(area.id)
+      setNewLocationOpen(false)
+      setNewLocationName('')
+    } finally { setCreatingLocation(false) }
   }
   function submit(event: React.FormEvent) {
     event.preventDefault(); if (!name.trim()) return
-    onAdd({ ...initialItem, id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity: 1, unit: 'item', category, location, expiresIn: daysUntilDate(expiresOn), expiresOn: expiresOn || null })
+    const area = storageAreaForId(storageAreas, storageAreaId)
+    const finalExpiry = freshnessPolicy === 'tracked' ? expiresOn || null : null
+    onAdd({ ...initialItem, id: initialItem?.id || `${normalize(name).replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`, name: name.trim(), emoji, quantity: 1, unit: 'item', foodGroup, storageAreaId: area.id, freshnessPolicy, category: legacyCategoryForFoodGroup(foodGroup), location: legacyLocationForCondition(area.condition), expiresIn: daysUntilDate(finalExpiry), expiresOn: finalExpiry })
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2><p>No measuring required — Mise only tracks whether it is at home.</p></div><button type="button" onClick={onClose} aria-label="Close ingredient form"><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Avocados" /></label>{!initialItem && intelligence && <div className="food-intelligence-suggestion"><span>{intelligence.profile.emoji}</span><div><strong>{intelligence.profile.name}</strong><small>{intelligence.profile.category} · {intelligence.profile.location} · about {intelligence.profile.shelfLifeDays ?? '—'} days</small></div><button type="button" onClick={applyIntelligence}>Use suggestions</button></div>}<fieldset className="icon-picker ingredient-icon-picker"><legend>Choose an icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => setEmoji(icon)} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Category<select value={category} onChange={(e) => setCategory(e.target.value as Category)}>{categories.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={location} onChange={(e) => { const nextLocation = e.target.value as Location; setLocation(nextLocation); if (!initialItem && intelligence) setExpiresOn(suggestedExpirationDate(intelligence.profile, nextLocation, freshnessState) || '') }}><option>Fridge</option><option>Freezer</option><option>Pantry</option></select></label></div><div className="form-row">{!initialItem && intelligence && <label>Freshness status<select value={freshnessState} onChange={(e) => { const nextState = e.target.value as FreshnessState; setFreshnessState(nextState); setExpiresOn(suggestedExpirationDate(intelligence.profile, location, nextState) || '') }}><option value="purchased">Purchased today</option><option value="opened">Opened today</option></select></label>}<label>Use-by date (optional)<input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} /></label></div>{dateWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {dateWarning}</div>}<button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to my kitchen'} <ArrowRight /></button></form></div>
+  return <div className="modal-backdrop" onMouseDown={onClose}><form className="modal add-food-modal" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}><div className="modal-head"><div><span className="eyebrow">{initialItem ? 'Update your kitchen' : 'Stock your kitchen'}</span><h2>{initialItem ? 'Edit ingredient' : 'Add an ingredient'}</h2><p>No measuring required — Mise only tracks whether it is at home.</p></div><button type="button" onClick={onClose} aria-label="Close ingredient form"><X /></button></div><label>Food name<input autoFocus value={name} onChange={(e) => updateName(e.target.value)} placeholder="e.g. Avocados" /></label><div className={`ingredient-detail-summary${hasName ? '' : ' is-empty'}`}><span>{hasName ? emoji : <PackageOpen aria-hidden="true" />}</span><p><strong>{summaryTitle}</strong><small>{summaryDescription}</small></p><button type="button" onClick={() => setDetailsOpen((open) => !open)}>{detailsOpen ? 'Hide details' : 'Change details'}</button></div>{detailsOpen && <div className="ingredient-details"><fieldset className="icon-picker ingredient-icon-picker"><legend>Icon</legend><div>{foodIcons.map((icon) => <button key={icon} type="button" className={emoji === icon ? 'selected' : ''} onClick={() => { setDetailsTouched(true); setEmoji(icon) }} aria-label={`Use ${icon} icon`} aria-pressed={emoji === icon}>{icon}</button>)}</div></fieldset><div className="form-row"><label>Food type<select value={foodGroup} onChange={(e) => { setDetailsTouched(true); setFoodGroup(e.target.value as FoodGroup) }}>{foodGroups.map((item) => <option key={item}>{item}</option>)}</select></label><label>Stored in<select value={storageAreaId} onChange={(e) => { if (e.target.value === '__new__') { setNewLocationOpen(true); return } setDetailsTouched(true); const id = e.target.value; setStorageAreaId(id); const area = storageAreaForId(storageAreas, id); if (!initialItem && intelligence && freshnessPolicy === 'tracked') setExpiresOn(suggestedExpirationDate(intelligence.profile, legacyLocationForCondition(area.condition), freshnessState) || '') }}><option value="" disabled>Choose a location</option>{activeAreas.map((area) => <option value={area.id} key={area.id}>{area.name}</option>)}<option value="__new__">+ Add a location</option></select></label></div>{newLocationOpen && <div className="new-location-inline"><label>Location name<input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} placeholder="e.g. Garage freezer" /></label><label>Condition<select value={newLocationCondition} onChange={(event) => setNewLocationCondition(event.target.value as StorageCondition)}><option value="ambient">Room temperature</option><option value="chilled">Chilled</option><option value="frozen">Frozen</option></select></label><button type="button" className="secondary-button" disabled={!newLocationName.trim() || creatingLocation} onClick={() => void createLocation()}>{creatingLocation ? 'Adding…' : 'Add location'}</button></div>}<div className="form-row"><label>Freshness<select value={freshnessPolicy} onChange={(event) => { setDetailsTouched(true); const policy = event.target.value as FreshnessPolicy; setFreshnessPolicy(policy); if (policy === 'none') setExpiresOn(''); else if (!initialItem && intelligence) setExpiresOn(suggestedDate || '') }}><option value="tracked">Track a use-by date</option><option value="none">No date needed</option></select></label>{freshnessPolicy === 'tracked' && !initialItem && intelligence && <label>Freshness status<select value={freshnessState} onChange={(e) => { setDetailsTouched(true); const nextState = e.target.value as FreshnessState; setFreshnessState(nextState); setExpiresOn(suggestedExpirationDate(intelligence.profile, legacyLocation, nextState) || '') }}><option value="purchased">Purchased today</option><option value="opened">Opened today</option></select></label>}</div>{freshnessPolicy === 'tracked' && <label>Use-by date (optional)<input type="date" value={expiresOn} onChange={(e) => { setDetailsTouched(true); setExpiresOn(e.target.value) }} />{initialItem && suggestedDate && suggestedDate !== expiresOn && <button type="button" className="inline-suggestion" onClick={() => setExpiresOn(suggestedDate)}>Use Mise suggestion: {new Date(`${suggestedDate}T12:00:00`).toLocaleDateString()}</button>}</label>}{dateWarning && <div className="expiration-warning"><TriangleAlert size={13} /> {dateWarning}</div>}</div>}<button className="submit-button" type="submit">{initialItem ? 'Save changes' : 'Add to kitchen'} <ArrowRight /></button></form></div>
 }
 
 function RecipeEditor({ inventory, initialRecipe, onClose, onSave }: { inventory: InventoryItem[]; initialRecipe?: Recipe; onClose: () => void; onSave: (recipe: Recipe) => void }) {

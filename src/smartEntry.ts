@@ -40,9 +40,12 @@ function hintFor(name: string) {
       emoji: intelligence.profile.emoji,
       category: intelligence.profile.category,
       location: intelligence.profile.location,
-      expiresIn: intelligence.profile.shelfLifeDays,
+      expiresIn: intelligence.profile.freshnessPolicy === 'none' ? null : intelligence.profile.shelfLifeDays,
+      foodGroup: intelligence.profile.foodGroup,
+      storageAreaId: intelligence.profile.storageAreaId,
+      freshnessPolicy: intelligence.profile.freshnessPolicy,
       defaultUnit: intelligence.profile.defaultUnit,
-    } : { emoji: '🥫', category: 'Other' as Category, location: 'Pantry' as Location, expiresIn: null, defaultUnit: 'item' },
+    } : { emoji: '🥫', category: 'Other' as Category, location: 'Pantry' as Location, foodGroup: 'Other' as const, storageAreaId: 'pantry', freshnessPolicy: 'none' as const, expiresIn: null, defaultUnit: 'item' },
   }
 }
 
@@ -131,8 +134,10 @@ export function parseSmartEntry(input: string): SmartEntryItem[] {
     const unit = rawUnit ? (unitAliases[rawUnit] || rawUnit) : hint.defaultUnit
     const location = locationOverride || hint.location
     const inferredShelfLife = intelligence ? suggestedShelfLifeDays(intelligence.profile, location, freshnessCue.state) : hint.expiresIn
-    const expiresIn = explicitDays ?? (inferredShelfLife === null ? null : Math.max(0, inferredShelfLife - freshnessCue.ageDays))
-    const warning = expirationWarning(explicitDate, intelligence?.profile, location)
+    const freshnessPolicy = hint.freshnessPolicy
+    const expiresIn = freshnessPolicy === 'none' ? null : explicitDays ?? (inferredShelfLife === null ? null : Math.max(0, inferredShelfLife - freshnessCue.ageDays))
+    const expiresOn = freshnessPolicy === 'none' ? null : explicitDate
+    const warning = expirationWarning(expiresOn, intelligence?.profile, location)
     const confidence: SmartEntryConfidence = !recognized || warning ? 'low' : intelligence!.score < 0.85 ? 'medium' : rawAmount || suffixAmount ? 'high' : 'medium'
     const displayName = intelligence ? titleCase(intelligence.profile.name) : titleCase(rawName)
     const explanation = !recognized ? 'Check category, storage, and icon'
@@ -147,8 +152,11 @@ export function parseSmartEntry(input: string): SmartEntryItem[] {
       unit,
       category: hint.category,
       location,
+      foodGroup: hint.foodGroup,
+      storageAreaId: locationOverride ? location.toLowerCase() : hint.storageAreaId,
+      freshnessPolicy,
       expiresIn,
-      expiresOn: explicitDate,
+      expiresOn,
       confidence,
       explanation,
       source,

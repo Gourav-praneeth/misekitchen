@@ -29,7 +29,8 @@ export function daysUntilDate(expiresOn: string | null | undefined, today = new 
   return Math.round((expirationDay - currentDay) / DAY_MS)
 }
 
-export function daysUntilExpiration(item: Pick<InventoryItem, 'expiresOn' | 'expiresIn'>, today = new Date()) {
+export function daysUntilExpiration(item: Pick<InventoryItem, 'expiresOn' | 'expiresIn'> & Partial<Pick<InventoryItem, 'freshnessPolicy'>>, today = new Date()) {
+  if (item.freshnessPolicy === 'none') return null
   return daysUntilDate(item.expiresOn, today) ?? item.expiresIn
 }
 
@@ -41,7 +42,8 @@ export function legacyExpirationDaysForStorage(item: Pick<InventoryItem, 'expire
   return days === null ? null : Math.max(0, days)
 }
 
-export function withExpirationDate<T extends Pick<InventoryItem, 'expiresOn' | 'expiresIn'>>(item: T, today = new Date()): T {
+export function withExpirationDate<T extends Pick<InventoryItem, 'expiresOn' | 'expiresIn'> & Partial<Pick<InventoryItem, 'freshnessPolicy'>>>(item: T, today = new Date()): T {
+  if (item.freshnessPolicy === 'none') return { ...item, expiresOn: null, expiresIn: null }
   if (item.expiresOn || item.expiresIn === null) return item
   return { ...item, expiresOn: expirationDateFromDays(item.expiresIn, today) }
 }

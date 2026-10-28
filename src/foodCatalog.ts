@@ -1,4 +1,5 @@
-import type { Category, Location } from './types'
+import type { Category, FoodGroup, FreshnessPolicy, Location } from './types'
+import { foodGroupForLegacyCategory, storageAreaIdForLocation } from './storageAreas'
 
 export type FoodProfile = {
   id: string
@@ -9,6 +10,9 @@ export type FoodProfile = {
   location: Location
   shelfLifeDays: number | null
   defaultUnit: string
+  foodGroup: FoodGroup
+  storageAreaId: string
+  freshnessPolicy: FreshnessPolicy
 }
 
 export type FoodIntelligence = {
@@ -22,6 +26,7 @@ type FoodRow = [name: string, aliases: string, emoji: string, category: Category
 // This catalog intentionally contains generic foods rather than brands. It runs entirely
 // in the browser, so suggestions stay fast, private, and available offline.
 const rows: FoodRow[] = [
+  ['Chicken', 'whole chicken|chicken meat|chkn', '🍗', 'Protein', 'Fridge', 3, 'lb'],
   ['Chicken breast', 'chicken breasts|chicken brst|chkn brst|boneless chicken breast|boneless skinless chicken breast|bnls sknls chkn brst|cooked shredded chicken|shredded chicken|rotisserie chicken', '🍗', 'Protein', 'Fridge', 3, 'lb'],
   ['Chicken thighs', 'chicken thigh|chkn thighs|boneless chicken thighs', '🍗', 'Protein', 'Fridge', 3, 'lb'],
   ['Ground turkey', 'turkey mince|ground trky', '🍗', 'Protein', 'Fridge', 2, 'lb'],
@@ -122,6 +127,10 @@ const rows: FoodRow[] = [
   ['Dijon mustard', 'grainy dijon mustard|grainy mustard|dijon', '🫙', 'Pantry', 'Fridge', 90, 'tbsp'],
   ['Kosher salt', 'salt|sea salt|table salt', '🧂', 'Pantry', 'Pantry', 365, 'tsp'],
   ['Black pepper', 'ground black pepper|pepper|peppercorns|black peppercorns', '🧂', 'Pantry', 'Pantry', 365, 'tsp'],
+  ['Red chilli powder', 'red chili powder|chilli powder|chili powder|ground chilli|ground chili|lal mirch', '🌶️', 'Pantry', 'Pantry', null, 'tsp'],
+  ['Cumin', 'ground cumin|cumin powder|cumin seeds|jeera', '🧂', 'Pantry', 'Pantry', null, 'tsp'],
+  ['Paprika', 'smoked paprika|sweet paprika', '🌶️', 'Pantry', 'Pantry', null, 'tsp'],
+  ['Oregano', 'dried oregano|oregano leaves', '🌿', 'Pantry', 'Pantry', null, 'tsp'],
   ['Lemon juice', 'fresh lemon juice|bottled lemon juice', '🍋', 'Pantry', 'Fridge', 30, 'tbsp'],
   ['Olive oil', 'extra virgin olive oil|evoo|oliveoil', '🫒', 'Pantry', 'Pantry', 365, 'bottle'],
   ['Rice vinegar', 'rice wine vinegar|seasoned rice vinegar', '🍶', 'Pantry', 'Pantry', 365, 'bottle'],
@@ -140,8 +149,33 @@ function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
+const grains = new Set(['Rolled oats', 'Rice', 'Quinoa', 'Bread', 'Tortillas', 'Pasta', 'Flour', 'Cereal'])
+const legumes = new Set(['Black beans', 'Chickpeas', 'Lentils', 'Beans'])
+const nutsAndSeeds = new Set(['Peanut butter', 'Almonds', 'Pecans', 'Walnuts', 'Milled flax seeds', 'Chia seeds', 'Hemp seeds'])
+const spices = new Set(['Cinnamon', 'Turmeric', 'Kosher salt', 'Black pepper', 'Red chilli powder', 'Cumin', 'Paprika', 'Oregano'])
+const condiments = new Set(['Honey', 'Dijon mustard', 'Lemon juice', 'Olive oil', 'Rice vinegar', 'Vinegar', 'Tomato sauce', 'Soy sauce'])
+const noDateFoods = new Set([
+  'Rolled oats', 'Rice', 'Quinoa', 'Pasta', 'Flour', 'Cereal', 'Black beans', 'Chickpeas', 'Lentils', 'Beans',
+  'Peanut butter', 'Almonds', 'Pecans', 'Walnuts', 'Milled flax seeds', 'Chia seeds', 'Hemp seeds', 'Protein powder',
+  'Cocoa powder', 'Honey', 'Cinnamon', 'Turmeric', 'Kosher salt', 'Black pepper', 'Red chilli powder', 'Cumin', 'Paprika',
+  'Oregano', 'Olive oil', 'Rice vinegar', 'Vinegar', 'Sugar', 'Coffee', 'Tea',
+])
+
+function metadata(name: string, category: Category, location: Location) {
+  const foodGroup: FoodGroup = grains.has(name) ? 'Grains & starches'
+    : legumes.has(name) ? 'Legumes'
+      : nutsAndSeeds.has(name) ? 'Nuts & seeds'
+        : spices.has(name) ? 'Spices & seasonings'
+          : condiments.has(name) ? 'Condiments & oils'
+            : foodGroupForLegacyCategory(category)
+  const storageAreaId = spices.has(name) ? 'spice-rack'
+    : storageAreaIdForLocation(location)
+  return { foodGroup, storageAreaId, freshnessPolicy: (noDateFoods.has(name) ? 'none' : 'tracked') as FreshnessPolicy }
+}
+
 export const foodCatalog: FoodProfile[] = rows.map(([name, aliases, emoji, category, location, shelfLifeDays, defaultUnit]) => ({
   id: slug(name), name, aliases: aliases.split('|'), emoji, category, location, shelfLifeDays, defaultUnit,
+  ...metadata(name, category, location),
 }))
 
 const tokenAliases: Record<string, string> = {

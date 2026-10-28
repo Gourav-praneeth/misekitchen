@@ -5,6 +5,7 @@ import type { Category, GroceryItem, InventoryItem } from './types'
 import { mergeProductMetadata } from './productIdentity'
 import { collapseInventoryPresence } from './inventoryPresence'
 import { convertAmount } from './measurements'
+import { legacyCategoryForFoodGroup } from './storageAreas'
 
 const genericUnits = new Set(['item', 'items'])
 
@@ -104,16 +105,20 @@ export function purchasedGroceryAmount(item: GroceryItem) {
 export function inventoryItemFromGrocery(item: GroceryItem, id: string): InventoryItem {
   const intelligence = getFoodIntelligence(item.name)
   const profile = intelligence?.profile
-  const expiresIn = profile?.shelfLifeDays ?? null
-  const expiresOn = item.purchase?.expiresOn || expirationDateFromDays(expiresIn)
+  const freshnessPolicy = item.purchase?.freshnessPolicy || profile?.freshnessPolicy || 'none'
+  const expiresIn = freshnessPolicy === 'none' ? null : profile?.shelfLifeDays ?? null
+  const expiresOn = freshnessPolicy === 'none' ? null : item.purchase?.expiresOn || expirationDateFromDays(expiresIn)
   return withExpirationDate({
     id,
     name: profile?.name || item.name.trim(),
     emoji: profile?.emoji || '🥫',
     quantity: 1,
     unit: 'item',
-    category: profile?.category || 'Other',
+    category: legacyCategoryForFoodGroup(item.purchase?.foodGroup || profile?.foodGroup || 'Other'),
     location: item.purchase?.location || profile?.location || 'Pantry',
+    foodGroup: item.purchase?.foodGroup || profile?.foodGroup || 'Other',
+    storageAreaId: item.purchase?.storageAreaId || profile?.storageAreaId || 'pantry',
+    freshnessPolicy,
     expiresIn,
     expiresOn,
     barcode: item.purchase?.barcode || null,

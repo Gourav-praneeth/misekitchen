@@ -20,6 +20,12 @@ describe('legacy kitchen compatibility', () => {
     expect(result.items.map((item) => item.id)).toEqual(['legacy-grocery-harissa-paste-jar', 'legacy-grocery-harissa-paste-jar-2'])
   })
 
+  it('clears misleading dates from catalog-confirmed dry foods', () => {
+    const oats = { ...legacyInventory, id: 'oats', name: 'Rolled oats', emoji: '🥣', location: 'Pantry' as const, expiresIn: 30, expiresOn: '2026-11-24' }
+    const result = normalizeLegacyInventory([oats]).items[0]
+    expect(result).toMatchObject({ id: 'oats', foodGroup: 'Grains & starches', storageAreaId: 'pantry', freshnessPolicy: 'none', expiresIn: null, expiresOn: null })
+  })
+
   it('uses household mappings before catalog icons and catalog before stored icons', () => {
     const milk: InventoryItem = { ...legacyInventory, id: 'milk', name: 'Milk', emoji: '🌶️', category: 'Other' }
     const mapping: HouseholdFoodMapping = { normalizedName: 'milk', displayName: 'House milk', emoji: '🥤', category: 'Dairy', location: 'Fridge' }

@@ -11,7 +11,7 @@ describe('expiration intelligence', () => {
     expect(suggestedShelfLifeDays(chicken, 'Fridge', 'purchased')).toBe(3)
     expect(suggestedShelfLifeDays(chicken, 'Fridge', 'opened')).toBe(2)
     expect(suggestedShelfLifeDays(chicken, 'Freezer', 'purchased')).toBe(90)
-    expect(suggestedShelfLifeDays(beans, 'Fridge', 'opened')).toBe(5)
+    expect(suggestedShelfLifeDays(beans, 'Fridge', 'opened')).toBeNull()
   })
 
   it('understands opened and purchased cues', () => {

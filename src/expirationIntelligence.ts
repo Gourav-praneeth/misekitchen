@@ -26,6 +26,7 @@ const frozenDays: Record<Category, number> = {
 }
 
 export function suggestedShelfLifeDays(profile: FoodProfile, location: Location, state: FreshnessState = 'purchased') {
+  if (profile.freshnessPolicy === 'none') return null
   const base = profile.shelfLifeDays
   if (base === null) return null
   if (location === 'Freezer') return state === 'opened' ? Math.min(frozenDays[profile.category], 60) : Math.max(base, frozenDays[profile.category])

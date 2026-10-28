@@ -55,7 +55,7 @@ export function matchRecipes(recipeList: Recipe[], inventory: InventoryItem[], p
       checked: false,
     }])
     const urgent = statuses.filter(({ item }) => {
-      if (!item) return false
+      if (!item || item.freshnessPolicy === 'none') return false
       const days = daysUntilExpiration(item)
       return days !== null && days <= 3
     }).length

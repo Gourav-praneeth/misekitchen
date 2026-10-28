@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { changedSnapshotRows, removedSnapshotRowIds, type CollaborativeKitchenSnapshot, type KitchenCollection } from './collaborationSync'
-import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient } from './types'
+import type { CookingHistoryEntry, DietPreference, FoodIntolerance, FoodPreferences, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, Recipe, RecipeIngredient, StorageArea } from './types'
 import { expirationDateFromDays, legacyExpirationDaysForStorage } from './freshness'
+import { defaultStorageAreas } from './storageAreas'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim()
@@ -133,8 +134,8 @@ export async function saveFoodPreferences(userId: string, preferences: FoodPrefe
 }
 
 export async function loadCloudKitchen(householdId: string) {
-  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [], cookingHistory: [], productMemory: [], hiddenMiseRecipeIds: [], initialized: false }
-  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, templateResult, cookingHistoryResult, productMemoryResult, householdResult] = await Promise.all([
+  if (!supabase) return { inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [], cookingHistory: [], productMemory: [], storageAreas: defaultStorageAreas, hiddenMiseRecipeIds: [], initialized: false }
+  const [inventoryResult, groceryResult, stapleGroupResult, stapleResult, recipeResult, mealPlanResult, templateResult, cookingHistoryResult, productMemoryResult, householdResult, storageAreaResult] = await Promise.all([
     supabase.from('inventory_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_items').select('*').eq('household_id', householdId).order('name'),
     supabase.from('grocery_staple_groups').select('*').eq('household_id', householdId).order('sort_order'),
@@ -145,6 +146,7 @@ export async function loadCloudKitchen(householdId: string) {
     supabase.from('cooking_history').select('*').eq('household_id', householdId).order('cooked_at', { ascending: false }).limit(100),
     supabase.from('household_products').select('*').eq('household_id', householdId).order('updated_at', { ascending: false }),
     supabase.from('households').select('initialized,hidden_mise_recipe_ids').eq('id', householdId).single(),
+    supabase.from('household_storage_areas').select('*').eq('household_id', householdId).order('sort_order'),
   ])
   if (inventoryResult.error) throw inventoryResult.error
   if (groceryResult.error) throw groceryResult.error
@@ -158,6 +160,8 @@ export async function loadCloudKitchen(householdId: string) {
   // Keep older deployments usable until the household-product memory migration is run.
   if (productMemoryResult.error && !['42P01', 'PGRST205'].includes(productMemoryResult.error.code || '')) throw productMemoryResult.error
   if (householdResult.error) throw householdResult.error
+  const storageAreasUnavailable = storageAreaResult.error && ['42P01', 'PGRST205'].includes(storageAreaResult.error.code || '')
+  if (storageAreaResult.error && !storageAreasUnavailable) throw storageAreaResult.error
   return {
     inventory: (inventoryResult.data || []).map((row) => ({
       id: row.id, name: row.name, emoji: row.emoji, quantity: Number(row.quantity), unit: row.unit,
@@ -166,6 +170,8 @@ export async function loadCloudKitchen(householdId: string) {
       barcode: row.barcode || null, brand: row.brand || null, productImageUrl: row.product_image_url || null,
       packageAmount: row.package_amount === null ? null : Number(row.package_amount), packageUnit: row.package_unit || null,
       productSource: row.product_source || null,
+      foodGroup: row.food_group || undefined, storageAreaId: row.storage_area_id || undefined,
+      freshnessPolicy: row.freshness_policy || undefined,
     })) as InventoryItem[],
     grocery: (groceryResult.data || []).map((row) => ({
       id: row.id, name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
@@ -202,7 +208,12 @@ export async function loadCloudKitchen(householdId: string) {
       productImageUrl: row.product_image_url || null,
       packageAmount: row.package_amount === null ? null : Number(row.package_amount),
       packageUnit: row.package_unit || null, productSource: 'household',
+      foodGroup: row.food_group || undefined, storageAreaId: row.storage_area_id || undefined,
+      freshnessPolicy: row.freshness_policy || undefined,
     })) as HouseholdProduct[],
+    storageAreas: storageAreasUnavailable || !storageAreaResult.data?.length ? defaultStorageAreas : (storageAreaResult.data || []).map((row) => ({
+      id: row.id, name: row.name, condition: row.condition, sortOrder: Number(row.sort_order), archivedAt: row.archived_at || null,
+    })) as StorageArea[],
     hiddenMiseRecipeIds: (householdResult.data.hidden_mise_recipe_ids || []) as string[],
     initialized: Boolean(householdResult.data.initialized),
   }
@@ -232,6 +243,9 @@ export async function loadRememberedProduct(householdId: string, barcode: string
     packageAmount: data.package_amount === null ? null : Number(data.package_amount),
     packageUnit: data.package_unit || null,
     productSource: 'household',
+    foodGroup: data.food_group || undefined,
+    storageAreaId: data.storage_area_id || undefined,
+    freshnessPolicy: data.freshness_policy || undefined,
   } as HouseholdProduct
 }
 
@@ -348,7 +362,9 @@ export async function saveInventorySnapshot(householdId: string, items: Inventor
     const baseRows = source.map((item) => ({
       household_id: householdId, id: item.id, name: item.name, emoji: item.emoji,
       quantity: 1, unit: 'item', category: item.category, location: item.location,
-      expires_in: legacyExpirationDaysForStorage(item), expires_on: item.expiresOn || expirationDateFromDays(item.expiresIn),
+      expires_in: item.freshnessPolicy === 'none' ? null : legacyExpirationDaysForStorage(item), expires_on: item.freshnessPolicy === 'none' ? null : item.expiresOn || expirationDateFromDays(item.expiresIn),
+      food_group: item.foodGroup || null, storage_area_id: item.storageAreaId || null,
+      freshness_policy: item.freshnessPolicy || (item.expiresOn || item.expiresIn !== null ? 'tracked' : 'none'),
     }))
     return source.map((item, index) => ({
       ...baseRows[index],
@@ -426,17 +442,40 @@ export async function loadHouseholdFoodMappings(householdId: string): Promise<Ho
   const { data, error } = await supabase.from('household_food_mappings').select('*').eq('household_id', householdId)
   if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return []
   if (error) throw error
-  return (data || []).map((row) => ({ normalizedName: row.normalized_name, displayName: row.display_name, emoji: row.emoji, category: row.category, location: row.location })) as HouseholdFoodMapping[]
+  return (data || []).map((row) => ({ normalizedName: row.normalized_name, displayName: row.display_name, emoji: row.emoji, category: row.category, location: row.location, foodGroup: row.food_group || undefined, storageAreaId: row.storage_area_id || undefined, freshnessPolicy: row.freshness_policy || undefined })) as HouseholdFoodMapping[]
 }
 
 export async function saveHouseholdFoodMapping(householdId: string, mapping: HouseholdFoodMapping) {
   if (!supabase) return
-  const { error } = await supabase.from('household_food_mappings').upsert({
+  const row = {
     household_id: householdId, normalized_name: mapping.normalizedName, display_name: mapping.displayName,
-    emoji: mapping.emoji, category: mapping.category, location: mapping.location, updated_at: new Date().toISOString(),
-  }, { onConflict: 'household_id,normalized_name' })
+    emoji: mapping.emoji, category: mapping.category, location: mapping.location,
+    food_group: mapping.foodGroup || null, storage_area_id: mapping.storageAreaId || null, freshness_policy: mapping.freshnessPolicy || null,
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase.from('household_food_mappings').upsert(row, { onConflict: 'household_id,normalized_name' })
   if (error && ['42P01', 'PGRST205'].includes(error.code || '')) return
+  if (error?.code === 'PGRST204') {
+    const legacyRow = {
+      household_id: row.household_id, normalized_name: row.normalized_name, display_name: row.display_name,
+      emoji: row.emoji, category: row.category, location: row.location, updated_at: row.updated_at,
+    }
+    const { error: legacyError } = await supabase.from('household_food_mappings').upsert(legacyRow, { onConflict: 'household_id,normalized_name' })
+    if (legacyError) throw legacyError
+    return
+  }
   if (error) throw error
+}
+
+export async function saveStorageArea(householdId: string, area: StorageArea) {
+  if (!supabase) return
+  const row = { household_id: householdId, id: area.id, name: area.name.trim(), condition: area.condition, sort_order: area.sortOrder, archived_at: area.archivedAt || null }
+  const { error } = await supabase.from('household_storage_areas').upsert(row, { onConflict: 'household_id,id' })
+  if (error && !['42P01', 'PGRST204', 'PGRST205'].includes(error.code || '')) throw error
+}
+
+export async function saveStorageAreas(householdId: string, areas: StorageArea[]) {
+  await Promise.all(areas.map((area) => saveStorageArea(householdId, area)))
 }
 
 export async function recordUnknownFoodTerm(name: string) {

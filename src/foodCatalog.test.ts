@@ -36,4 +36,12 @@ describe('food intelligence catalog', () => {
   it('returns no guess when the catalog has no defensible match', () => {
     expect(getFoodIntelligence('harissa paste')).toBeNull()
   })
+
+  it('separates food type, storage area, and profile-specific freshness', () => {
+    expect(getFoodIntelligence('chicken')?.profile).toMatchObject({ foodGroup: 'Protein', storageAreaId: 'fridge', freshnessPolicy: 'tracked' })
+    expect(getFoodIntelligence('red chili powder')?.profile).toMatchObject({ foodGroup: 'Spices & seasonings', storageAreaId: 'spice-rack', freshnessPolicy: 'none' })
+    expect(getFoodIntelligence('oats')?.profile).toMatchObject({ foodGroup: 'Grains & starches', storageAreaId: 'pantry', freshnessPolicy: 'none' })
+    expect(getFoodIntelligence('rice')?.profile.freshnessPolicy).toBe('none')
+    expect(getFoodIntelligence('bread')?.profile.freshnessPolicy).toBe('tracked')
+  })
 })

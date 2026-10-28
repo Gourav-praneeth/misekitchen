@@ -36,7 +36,20 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
 
-### 2. Barcode scanning reliability — In progress
+### 2. Food types, physical storage, and smarter freshness — In progress
+
+- [x] Separate food type, household storage area, and freshness policy while preserving legacy category and location fields.
+- [x] Keep the everyday location model to Fridge, Freezer, Pantry, and Spice rack; fold the retired Counter default into Pantry while retaining optional custom-location management behind a compact settings disclosure.
+- [x] Extend Food Intelligence with grains, spices, legumes, nuts, oils, condiments, storage suggestions, and profile-specific date behavior.
+- [x] Make spices and catalog-confirmed dry staples date-free and exclude them from freshness warnings and scores.
+- [x] Organize My Kitchen by physical location, keep locations in one mobile row, and move food types into a secondary filter.
+- [x] Simplify manual entry to a name-first suggestion with optional detail editing and custom-location creation.
+- [x] Carry the same metadata through Smart Add, barcode memory, household mappings, and grocery-to-kitchen transfer.
+- [ ] Run the additive Supabase migration and validate two-member storage-area realtime changes on desktop and mobile.
+
+Exit criteria: every ingredient has a useful food type and physical home without making everyday entry slower, and shelf-stable foods never create misleading expiry alerts.
+
+### 3. Barcode scanning reliability — In progress
 
 The core mobile scanning workflow, product lookup, multi-product queue, household product memory, retries, offline fallback, and manual review are implemented.
 
@@ -51,7 +64,7 @@ Remaining validation:
 
 Exit criteria: scanning is reliable enough for regular grocery unloading without creating incorrect inventory or trapping the user when lookup fails.
 
-### 3. Smarter recommendations — Done
+### 4. Smarter recommendations — Done
 
 Make Overview and recipe suggestions more useful than a simple ingredient-match ranking.
 
@@ -65,7 +78,7 @@ Make Overview and recipe suggestions more useful than a simple ingredient-match 
 
 Exit criteria: a user can understand why a meal was suggested and act on it in one or two taps.
 
-### 4. Grocery List 2.1 — Done
+### 5. Grocery List 2.1 — Done
 
 - [x] Keep duplicate merging conservative while source tracking is deferred: compatible duplicates use the larger requirement instead of adding blindly.
 - [x] Let users customize aisle order and provide a compact mobile in-store mode.
@@ -76,7 +89,7 @@ Exit criteria: a user can understand why a meal was suggested and act on it in o
 
 Exit criteria: shopping is fast on a phone, actual package quantities reach inventory, and no duplicate is inflated without enough source information.
 
-### 5. Meal Planner 2.1 — On hold
+### 6. Meal Planner 2.1 — On hold
 
 Build on the current weekly planner after recommendation ranking is available.
 
@@ -90,7 +103,7 @@ Build on the current weekly planner after recommendation ranking is available.
 
 Exit criteria: planning a useful week on a phone is faster than building the same plan one slot at a time.
 
-### 6. Smart Entry and receipt refinement — Parked
+### 7. Smart Entry and receipt refinement — Parked
 
 Receipt work is intentionally paused while shared-kitchen reliability, barcode validation, and other daily-use improvements take priority.
 
@@ -141,6 +154,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 ## Decision log
 
+- **October 25, 2026:** Mise separated food identity from physical storage and freshness. My Kitchen is now location-first, household locations are customizable, and profile-specific freshness keeps bread date-aware while spices and dry grains remain intentionally date-free. Receipt refinement and Meal Planner 2.1 remain deferred.
 - **October 25, 2026:** The shared-kitchen reliability gate now treats silent staleness as an error: failed realtime reconciliation is visible within the two daily-use pages, local edits remain safe, and users can retry without leaving their task. Deterministic coverage now includes a legacy Undo interleaved with another member's addition and the edit-versus-re-add grocery “New” lifecycle. Signed-in two-device validation remains the final gate.
 - **October 25, 2026:** Grocery List navigation now prioritizes the actions used on every trip. Add item and Start shopping remain visible, checked items surface a dedicated Review purchases next step, and lower-frequency list setup lives under More. Mobile shows one action row before the shopping status and list.
 - **October 25, 2026:** Grocery entry now keeps single-item addition fast while pasted and generated lists share one stricter review contract. Cancel preserves unsaved pasted text, every visible row must be valid, and merge messaging is computed with the same unit-aware logic used by the final save.
