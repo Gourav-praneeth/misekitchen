@@ -147,3 +147,8 @@ export function unseenGroceryItemIds(items: GroceryItem[], userId: string, lastS
     return new Date(item.createdAt).getTime() > cutoff ? [item.id] : []
   }))
 }
+
+export function retainExistingGroceryItemIds(ids: Set<string>, items: GroceryItem[]) {
+  const existingIds = new Set(items.flatMap((item) => item.id ? [item.id] : []))
+  return new Set([...ids].filter((id) => existingIds.has(id)))
+}

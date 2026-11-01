@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, changedSnapshotRows, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, rebasePendingKitchen, removedSnapshotRowIds, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
+import { acceptKitchenCollections, acceptKitchenSnapshot, acknowledgeForcedCollections, changedKitchenCollections, changedSnapshotRows, forceKitchenCollections, kitchenFingerprints, pendingForcedCollections, rebasePendingKitchen, removedSnapshotRowIds, retainExistingGroceryItemIds, unseenGroceryItemIds, type CollaborativeKitchenSnapshot } from './collaborationSync'
 
 const empty: CollaborativeKitchenSnapshot = {
   inventory: [], grocery: [], stapleGroups: [], staples: [], recipes: [], mealPlan: [], mealPlanTemplates: [],
@@ -159,5 +159,12 @@ describe('household collection synchronization', () => {
     ]
 
     expect([...unseenGroceryItemIds(items, 'member-a', cutoff)]).toEqual(['readded-later'])
+  })
+
+  it('removes deleted rows from the current New grocery state immediately', () => {
+    const current = new Set(['deleted-remote', 'still-present'])
+    const items = [{ id: 'still-present', name: 'Milk', amount: 1, unit: 'item', checked: false }]
+
+    expect([...retainExistingGroceryItemIds(current, items)]).toEqual(['still-present'])
   })
 })

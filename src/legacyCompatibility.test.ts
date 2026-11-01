@@ -26,6 +26,38 @@ describe('legacy kitchen compatibility', () => {
     expect(result).toMatchObject({ id: 'oats', foodGroup: 'Grains & starches', storageAreaId: 'pantry', freshnessPolicy: 'none', expiresIn: null, expiresOn: null })
   })
 
+  it('replaces migration-era fallback metadata with catalog food types and storage', () => {
+    const cinnamon = {
+      ...legacyInventory,
+      id: 'cinnamon',
+      name: 'Cinnamon',
+      emoji: '🧂',
+      category: 'Pantry' as const,
+      location: 'Pantry' as const,
+      foodGroup: 'Other' as const,
+      storageAreaId: 'pantry',
+      freshnessPolicy: 'none' as const,
+    }
+    const result = normalizeLegacyInventory([cinnamon]).items[0]
+    expect(result).toMatchObject({ foodGroup: 'Spices & seasonings', storageAreaId: 'spice-rack', freshnessPolicy: 'none' })
+  })
+
+  it('preserves an explicit modern storage choice for a recognized food', () => {
+    const cinnamon: InventoryItem = {
+      ...legacyInventory,
+      id: 'custom-cinnamon',
+      name: 'Cinnamon',
+      category: 'Pantry',
+      location: 'Pantry',
+      foodGroup: 'Spices & seasonings',
+      storageAreaId: 'pantry',
+      freshnessPolicy: 'none',
+    }
+    const result = normalizeLegacyInventory([cinnamon]).items[0]
+
+    expect(result).toMatchObject({ foodGroup: 'Spices & seasonings', storageAreaId: 'pantry', freshnessPolicy: 'none' })
+  })
+
   it('uses household mappings before catalog icons and catalog before stored icons', () => {
     const milk: InventoryItem = { ...legacyInventory, id: 'milk', name: 'Milk', emoji: '🌶️', category: 'Other' }
     const mapping: HouseholdFoodMapping = { normalizedName: 'milk', displayName: 'House milk', emoji: '🥤', category: 'Dairy', location: 'Fridge' }

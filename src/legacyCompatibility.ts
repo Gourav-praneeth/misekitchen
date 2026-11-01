@@ -24,11 +24,20 @@ export function normalizeLegacyInventory(items: InventoryItem[]) {
     while (ids.has(id)) { id = `${baseId}-${suffix}`; suffix += 1 }
     ids.add(id)
     const emoji = typeof item.emoji === 'string' && item.emoji.trim() ? item.emoji : intelligence?.profile.emoji || '🥫'
-    const category = categories.has(item.category) ? item.category : intelligence?.profile.category || 'Other'
-    const location = locations.has(item.location) ? item.location : intelligence?.profile.location || 'Pantry'
-    const foodGroup = item.foodGroup || intelligence?.profile.foodGroup || foodGroupForLegacyCategory(category)
-    const storageAreaId = item.storageAreaId || intelligence?.profile.storageAreaId || storageAreaIdForLocation(location)
-    const freshnessPolicy = item.freshnessPolicy || intelligence?.profile.freshnessPolicy || 'none'
+    const storedCategory = categories.has(item.category) ? item.category : intelligence?.profile.category || 'Other'
+    const storedLocation = locations.has(item.location) ? item.location : intelligence?.profile.location || 'Pantry'
+    // The additive storage migration could only infer modern metadata from the
+    // old broad category/location columns. Treat that exact inferred shape as
+    // a legacy fallback so the richer catalog can finish the backfill. Modern
+    // rows and household mappings retain their explicit choices.
+    const usesLegacyMetadata = !item.foodGroup || !item.storageAreaId || !item.freshnessPolicy
+      || (item.foodGroup === foodGroupForLegacyCategory(storedCategory)
+        && item.storageAreaId === storageAreaIdForLocation(storedLocation))
+    const category = intelligence && usesLegacyMetadata ? intelligence.profile.category : storedCategory
+    const location = intelligence && usesLegacyMetadata ? intelligence.profile.location : storedLocation
+    const foodGroup = intelligence && usesLegacyMetadata ? intelligence.profile.foodGroup : item.foodGroup || foodGroupForLegacyCategory(category)
+    const storageAreaId = intelligence && usesLegacyMetadata ? intelligence.profile.storageAreaId : item.storageAreaId || storageAreaIdForLocation(location)
+    const freshnessPolicy = intelligence && usesLegacyMetadata ? intelligence.profile.freshnessPolicy : item.freshnessPolicy || 'none'
     const expiresOn = freshnessPolicy === 'none' ? null : item.expiresOn
     const expiresIn = freshnessPolicy === 'none' ? null : item.expiresIn
     const next: InventoryItem = { ...item, id, emoji, quantity: 1, unit: 'item', category, location, foodGroup, storageAreaId, freshnessPolicy, expiresOn, expiresIn }
@@ -59,8 +68,21 @@ export function normalizeLegacyGrocery(items: GroceryItem[]) {
 export function resolveInventoryPresentation(item: InventoryItem, mappings: HouseholdFoodMapping[]) {
   const normalizedName = normalizeFoodName(item.name)
   const mapping = mappings.find((candidate) => candidate.normalizedName === normalizedName)
-  if (mapping) return { ...item, name: mapping.displayName, emoji: mapping.emoji, category: mapping.category, location: mapping.location, foodGroup: mapping.foodGroup || item.foodGroup, storageAreaId: mapping.storageAreaId || item.storageAreaId, freshnessPolicy: mapping.freshnessPolicy || item.freshnessPolicy }
   const catalog = getFoodIntelligence(item.name)?.profile
+  if (mapping) {
+    const freshnessPolicy = mapping.freshnessPolicy || catalog?.freshnessPolicy || item.freshnessPolicy
+    return {
+      ...item,
+      name: mapping.displayName,
+      emoji: mapping.emoji,
+      category: mapping.category,
+      location: mapping.location,
+      foodGroup: mapping.foodGroup || catalog?.foodGroup || item.foodGroup,
+      storageAreaId: mapping.storageAreaId || storageAreaIdForLocation(mapping.location) || catalog?.storageAreaId || item.storageAreaId,
+      freshnessPolicy,
+      ...(freshnessPolicy === 'none' ? { expiresOn: null, expiresIn: null } : {}),
+    }
+  }
   if (catalog) return { ...item, emoji: catalog.emoji }
   return { ...item, emoji: genericIcons.has(item.emoji || '') ? '🥫' : item.emoji }
 }

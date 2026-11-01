@@ -1,6 +1,6 @@
 # Mise product roadmap
 
-Last reviewed: October 25, 2026
+Last reviewed: October 28, 2026
 
 This file is the source of truth for Mise's implementation order. Add new ideas here when they come up, even when work temporarily moves to another feature. Moving an item does not remove it from the roadmap; record the reason in the decision log.
 
@@ -32,6 +32,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Reorganize Grocery List around the daily flow: add, shop, check off, and review purchases first; keep aisle order, staples management, and bulk completion in a compact utility menu.
 - [x] Surface saving, offline, refresh-error, and conflict states inside My Kitchen and Grocery List so household sync health remains visible on mobile.
 - [x] Add recovery actions to grocery empty/filter states, Escape/outside-click behavior to working menus, and 44px mobile grocery controls.
+- [x] Clear household “New” grocery indicators immediately when the underlying remote item is deleted.
 - [ ] Validate the complete signed-in two-member flow end to end, including delayed Undo, offline recovery, and realtime changes from the other member.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
@@ -45,7 +46,8 @@ Meal Planner 2.1 remains intentionally deferred until this lower-friction kitche
 - [x] Organize My Kitchen by physical location, keep locations in one mobile row, and move food types into a secondary filter.
 - [x] Simplify manual entry to a name-first suggestion with optional detail editing and custom-location creation.
 - [x] Carry the same metadata through Smart Add, barcode memory, household mappings, and grocery-to-kitchen transfer.
-- [ ] Run the additive Supabase migration and validate two-member storage-area realtime changes on desktop and mobile.
+- [x] Run the additive Supabase migration and validate two-member storage-area realtime changes on desktop and mobile.
+- [x] Upgrade migration-era fallback metadata to the richer catalog profile while preserving explicit household storage choices.
 
 Exit criteria: every ingredient has a useful food type and physical home without making everyday entry slower, and shelf-stable foods never create misleading expiry alerts.
 
@@ -154,6 +156,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 ## Decision log
 
+- **October 28, 2026:** Signed-in two-member validation confirmed realtime grocery, inventory, Undo, and storage-area synchronization. Follow-up fixes now remove deleted rows from the visible “New” state immediately and finish catalog backfill for migration-era ingredient metadata without overriding explicit modern choices. Offline recovery remains the outstanding shared-kitchen gate.
 - **October 25, 2026:** Mise separated food identity from physical storage and freshness. My Kitchen is now location-first, household locations are customizable, and profile-specific freshness keeps bread date-aware while spices and dry grains remain intentionally date-free. Receipt refinement and Meal Planner 2.1 remain deferred.
 - **October 25, 2026:** The shared-kitchen reliability gate now treats silent staleness as an error: failed realtime reconciliation is visible within the two daily-use pages, local edits remain safe, and users can retry without leaving their task. Deterministic coverage now includes a legacy Undo interleaved with another member's addition and the edit-versus-re-add grocery “New” lifecycle. Signed-in two-device validation remains the final gate.
 - **October 25, 2026:** Grocery List navigation now prioritizes the actions used on every trip. Add item and Start shopping remain visible, checked items surface a dedicated Review purchases next step, and lower-frequency list setup lives under More. Mobile shows one action row before the shopping status and list.
