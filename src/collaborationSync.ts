@@ -40,9 +40,11 @@ function mergePendingRows<T extends { id?: string; name?: string; unit?: string 
     if (cachedRow && !pendingRow) return []
 
     // A local edit wins over a concurrent cloud edit. If the pending row is
-    // unchanged from the cached baseline, prefer the latest cloud version.
+    // unchanged from the cached baseline, prefer the latest cloud version —
+    // including a remote deletion represented by no cloud row.
     if (pendingRow && cachedRow) {
-      return [JSON.stringify(pendingRow) === JSON.stringify(cachedRow) && cloudRow ? cloudRow : pendingRow]
+      if (JSON.stringify(pendingRow) === JSON.stringify(cachedRow)) return cloudRow ? [cloudRow] : []
+      return [pendingRow]
     }
 
     // A row absent from the cached baseline is a new local or remote addition.

@@ -122,6 +122,32 @@ describe('household collection synchronization', () => {
     expect(rebasePendingKitchen(latest, pending, cached).grocery[0].amount).toBe(2)
   })
 
+  it('keeps a remote deletion when the offline row was unchanged locally', () => {
+    const cached = { ...empty, inventory: [{ id: 'milk', name: 'Milk', emoji: '🥛', quantity: 1, unit: 'item', category: 'Dairy' as const, location: 'Fridge' as const, expiresIn: 7 }] }
+    const pending = structuredClone(cached)
+    const latest = { ...cached, inventory: [] }
+
+    expect(rebasePendingKitchen(latest, pending, cached).inventory).toEqual([])
+  })
+
+  it('keeps an offline edit when another member deleted the same row', () => {
+    const cached = { ...empty, grocery: [{ id: 'milk', name: 'Milk', amount: 1, unit: 'item', checked: false }] }
+    const pending = { ...cached, grocery: [{ ...cached.grocery[0], amount: 3 }] }
+    const latest = { ...cached, grocery: [] }
+
+    expect(rebasePendingKitchen(latest, pending, cached).grocery).toEqual([
+      { id: 'milk', name: 'Milk', amount: 3, unit: 'item', checked: false },
+    ])
+  })
+
+  it('merges independent offline and remote additions', () => {
+    const cached = structuredClone(empty)
+    const pending = { ...cached, grocery: [{ id: 'local-oats', name: 'Oats', amount: 1, unit: 'bag', checked: false }] }
+    const latest = { ...cached, grocery: [{ id: 'remote-milk', name: 'Milk', amount: 1, unit: 'carton', checked: false }] }
+
+    expect(rebasePendingKitchen(latest, pending, cached).grocery.map((item) => item.id).sort()).toEqual(['local-oats', 'remote-milk'])
+  })
+
   it('prefers a local pending edit over a concurrent edit to the same row', () => {
     const cached = { ...empty, grocery: [{ id: 'milk', name: 'Milk', amount: 1, unit: 'item', checked: false }] }
     const pending = { ...cached, grocery: [{ ...cached.grocery[0], amount: 3 }] }

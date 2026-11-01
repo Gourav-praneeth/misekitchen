@@ -37,7 +37,7 @@ import { loadDiscoverRecipe, searchDiscoverRecipes, type DiscoverRecipe, type Di
 import { normalizeFoodName, parseSmartEntry, sameFoodAndUnit } from './smartEntry'
 import type { SmartEntryItem } from './smartEntry'
 import { cloudEnabled, createHouseholdInvite, deleteCookingHistoryEntry, deleteMealPlanTemplate, getHouseholdId, joinHousehold, loadActiveHouseholdInvite, loadCloudKitchen, loadFoodPreferences, loadGroceryLastSeen, loadHouseholdActivity, loadHouseholdFoodMappings, loadHouseholdMembers, loadHouseholds, loadRememberedProduct, markGrocerySeen, markHouseholdInitialized, recordUnknownFoodTerm, removeHouseholdMember, renameHousehold, revokeHouseholdInvite, saveCookingHistoryEntry, saveFoodPreferences, saveHouseholdFoodMapping, saveKitchenSnapshot, saveStorageAreas, setActiveHousehold, setMiseRecipeHidden, submitFeedback, supabase, updateHouseholdMemberRole } from './supabase'
-import { createLatestSaveQueue, withRetry } from './sync'
+import { createLatestSaveQueue, shouldHydrateKitchen, withRetry } from './sync'
 import type { Category, CookingHistoryEntry, FoodGroup, FoodIntolerance, FoodPreferences, FreshnessPolicy, GroceryItem, GroceryStaple, GroceryStapleGroup, HouseholdActivity, HouseholdFoodMapping, HouseholdInvite, HouseholdMember, HouseholdProduct, HouseholdSummary, InventoryItem, MealPlanEntry, MealPlanTemplate, MealSlot, Recipe, StorageArea, StorageCondition } from './types'
 import UnitPicker from './UnitPicker'
 import { activeStorageAreas, currentStorageAreaId, defaultStorageAreas, foodGroups, freshnessLabel, legacyCategoryForFoodGroup, legacyLocationForCondition, storageAreaForId } from './storageAreas'
@@ -163,6 +163,7 @@ function App() {
   const [demoMode, setDemoMode] = useState(false)
   const [householdId, setHouseholdId] = useState<string | null>(null)
   const [cloudReady, setCloudReady] = useState(false)
+  const cloudReadyRef = useRef(cloudReady)
   const [syncState, setSyncState] = useState<SyncState>('saved')
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [retryToken, setRetryToken] = useState(0)
@@ -194,6 +195,7 @@ function App() {
   const skipNextCloudSave = useRef(false)
 
   useEffect(() => { groceryRef.current = grocery }, [grocery])
+  useEffect(() => { cloudReadyRef.current = cloudReady }, [cloudReady])
 
   const reconcileRemoteKitchen = useCallback(async () => {
     if (!session || !householdId || demoMode || localChangesPending.current) {
@@ -309,6 +311,7 @@ function App() {
 
   useEffect(() => {
     if (!session || demoMode) return
+    if (!shouldHydrateKitchen(isOnline, cloudReadyRef.current)) return
     let active = true
     async function hydrate() {
       setCloudReady(false)

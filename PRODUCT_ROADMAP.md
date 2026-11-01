@@ -1,6 +1,6 @@
 # Mise product roadmap
 
-Last reviewed: October 28, 2026
+Last reviewed: October 31, 2026
 
 This file is the source of truth for Mise's implementation order. Add new ideas here when they come up, even when work temporarily moves to another feature. Moving an item does not remove it from the roadmap; record the reason in the decision log.
 
@@ -33,6 +33,7 @@ This file is the source of truth for Mise's implementation order. Add new ideas 
 - [x] Surface saving, offline, refresh-error, and conflict states inside My Kitchen and Grocery List so household sync health remains visible on mobile.
 - [x] Add recovery actions to grocery empty/filter states, Escape/outside-click behavior to working menus, and 44px mobile grocery controls.
 - [x] Clear household “New” grocery indicators immediately when the underlying remote item is deleted.
+- [x] Preserve the open in-memory kitchen when connectivity drops and deterministically rebase offline additions, edits, deletions, and remote deletions on reconnect.
 - [ ] Validate the complete signed-in two-member flow end to end, including delayed Undo, offline recovery, and realtime changes from the other member.
 
 Meal Planner 2.1 remains intentionally deferred until this lower-friction kitchen model is validated.
@@ -156,6 +157,7 @@ These can be reconsidered only when the free-tier limits or beta feedback justif
 
 ## Decision log
 
+- **October 31, 2026:** Offline reconciliation now treats the open kitchen as the newest local source instead of reloading a possibly stale cache when connectivity drops. On reconnect, unchanged local rows respect remote deletion, independent additions merge, and genuine offline edits remain recoverable. Automated coverage is complete; a real-device offline/reconnection run remains the final shared-kitchen gate.
 - **October 28, 2026:** Signed-in two-member validation confirmed realtime grocery, inventory, Undo, and storage-area synchronization. Follow-up fixes now remove deleted rows from the visible “New” state immediately and finish catalog backfill for migration-era ingredient metadata without overriding explicit modern choices. Offline recovery remains the outstanding shared-kitchen gate.
 - **October 25, 2026:** Mise separated food identity from physical storage and freshness. My Kitchen is now location-first, household locations are customizable, and profile-specific freshness keeps bread date-aware while spices and dry grains remain intentionally date-free. Receipt refinement and Meal Planner 2.1 remain deferred.
 - **October 25, 2026:** The shared-kitchen reliability gate now treats silent staleness as an error: failed realtime reconciliation is visible within the two daily-use pages, local edits remain safe, and users can retry without leaving their task. Deterministic coverage now includes a legacy Undo interleaved with another member's addition and the edit-versus-re-add grocery “New” lifecycle. Signed-in two-device validation remains the final gate.

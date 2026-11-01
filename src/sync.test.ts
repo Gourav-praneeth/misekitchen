@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { acknowledgeForcedCollections, forceKitchenCollections } from './collaborationSync'
-import { createLatestSaveQueue, withRetry } from './sync'
+import { createLatestSaveQueue, shouldHydrateKitchen, withRetry } from './sync'
 
 describe('cloud retry', () => {
   it('returns immediately when the first save succeeds', async () => {
@@ -20,6 +20,20 @@ describe('cloud retry', () => {
     expect(operation).toHaveBeenCalledTimes(3)
     expect(wait).toHaveBeenNthCalledWith(1, 500)
     expect(wait).toHaveBeenNthCalledWith(2, 1000)
+  })
+})
+
+describe('offline hydration', () => {
+  it('loads the cache for an initial offline startup', () => {
+    expect(shouldHydrateKitchen(false, false)).toBe(true)
+  })
+
+  it('keeps the current in-memory kitchen when an open app goes offline', () => {
+    expect(shouldHydrateKitchen(false, true)).toBe(false)
+  })
+
+  it('reloads cloud state on reconnect so pending changes can be rebased', () => {
+    expect(shouldHydrateKitchen(true, true)).toBe(true)
   })
 })
 
