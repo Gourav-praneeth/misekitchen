@@ -1,105 +1,161 @@
 # Mise
 
-A kitchen-first food management MVP. Mise helps you understand what is at home, what should be used soon, what you can cook, and what you still need to buy.
+**A shared kitchen companion that helps households remember what is at home, use food before it goes to waste, decide what to cook, and shop together.**
+
+[Open the live app](https://misekitchen-ten.vercel.app/) · [View the product roadmap](PRODUCT_ROADMAP.md)
+
+Mise replaces detailed stock counting with a lighter presence-based model: an ingredient is either **at home** or it is not. Recipes keep their full measurements, while the kitchen stays quick enough to update during everyday life.
+
+## What Mise does
+
+Mise connects four daily household workflows:
+
+1. **My Kitchen** shows what is available, where it is stored, and what needs attention.
+2. **What Can I Make?** ranks recipes using ingredient availability, freshness, cook time, preferences, and recent meals.
+3. **Meal Plan** organizes breakfast, lunch, dinner, and snacks across the week.
+4. **Grocery List** combines missing recipe ingredients, household staples, and manually added items into a shared shopping flow.
+
+The result is a simple loop:
+
+> Know what you have → cook what makes sense → review what is missing → shop → move purchases back into the kitchen.
+
+## Product highlights
+
+### A low-effort kitchen inventory
+
+- Presence-based tracking instead of exact remaining quantities.
+- Physical storage areas: Fridge, Freezer, Pantry, and Spice rack.
+- Independent food types such as Protein, Produce, Grains & starches, and Spices & seasonings.
+- Profile-specific freshness: perishable foods can receive use-by suggestions while dry staples stay date-free.
+- Search, storage filters, food-type filters, Restock actions, and recoverable deletion with Undo.
+- Manual entry, natural-language Smart Add, barcode entry, and reviewed receipt import.
+
+### Recipes that reflect the real kitchen
+
+- Recipe readiness based on ingredient presence.
+- Recommendations that consider use-soon ingredients, cook time, preferences, saved recipes, recent cooking history, and meal-plan context.
+- Clear explanations for why a recipe is recommended.
+- Adjustable servings with recalculated recipe and grocery quantities.
+- Household recipes plus optional Spoonacular discovery.
+- A post-cooking “What ran out?” review instead of automatic ingredient deduction.
+
+### A collaborative grocery list
+
+- Shared household list with realtime updates.
+- “New” indicators for items added by another household member.
+- Review before generated or pasted groups of ingredients are added.
+- Conservative duplicate merging and compatible-unit conversion.
+- Automatic aisle grouping, custom aisle order, reusable staples, and a mobile shopping mode.
+- Purchase review for package count, package size, and unexpected purchases before items return to the kitchen.
+- Barcode lookup through Open Food Facts with household product memory.
+
+### Planning and household coordination
+
+- Weekly meal planning with breakfast, lunch, dinner, and snack slots.
+- Servings, day copying, next-week repeat, reusable templates, and meal reminders.
+- Shared kitchens with invite codes, member management, household switching, and recent activity.
+- Realtime Supabase synchronization with row-level household security.
+- Account-scoped cache, pending-change recovery, conflict protection, and offline reconciliation.
+
+## Design principles
+
+- **Less tracking, more usefulness.** Mise should never require more work than the problem it solves.
+- **Review before bulk changes.** Generated grocery lists and imports remain editable before saving.
+- **Household-safe by default.** Realtime changes, Undo, and offline recovery must not overwrite another member's work.
+- **Private and predictable.** Receipt images are processed in the browser and are not uploaded or stored.
+- **Free-tier friendly.** Core recommendations are deterministic; paid AI and analytics services are not required.
+
+## Technology
+
+| Area | Implementation |
+| --- | --- |
+| Frontend | React, TypeScript, Vite |
+| Authentication and database | Supabase Auth and PostgreSQL |
+| Realtime collaboration | Supabase Realtime with household-scoped RLS |
+| Deployment and server functions | Vercel |
+| Barcode scanning | ZXing Browser |
+| Product lookup | Open Food Facts through a protected Vercel Function |
+| Receipt OCR | Tesseract.js in the browser |
+| Optional recipe discovery | Spoonacular through an authenticated Vercel Function |
+| Testing | Vitest, ESLint, and TypeScript production builds |
 
 ## Run locally
 
+Requirements:
+
+- Node.js 20 or newer
+- npm
+
 ```bash
+git clone https://github.com/Gourav-praneeth/misekitchen.git
+cd misekitchen
 npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. Inventory and grocery changes are saved in browser local storage.
+Open the URL printed by Vite. Without Supabase environment variables, Mise automatically runs as a browser-only demo and stores changes in local storage.
 
-Run the quality checks before shipping changes:
+### Quality checks
 
 ```bash
-npm run lint
 npm test
+npm run lint
 npm run build
 ```
 
-## Supabase backend
+## Configure Supabase
 
-Mise supports email/password authentication and household-scoped cloud synchronization through Supabase. Without Supabase environment variables, it automatically remains a local demo.
+Mise supports email/password authentication, Google OAuth, private households, realtime collaboration, and household-scoped cloud storage.
 
 1. Create or select a Supabase project.
-2. Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL Editor. If the repository is linked through the Supabase CLI, `supabase db push` applies the migrations instead.
-3. Copy `.env.example` to `.env.local` and provide:
+2. Apply the SQL files in `supabase/migrations` in filename order using the Supabase SQL Editor, or link the repository and run `supabase db push`.
+3. Copy `.env.example` to `.env.local`.
+4. Add the public browser configuration:
 
    ```bash
    VITE_SUPABASE_URL=https://your-project.supabase.co
    VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
    ```
 
-4. Add the same variables to Vercel for Production, Preview, and Development.
-5. In Supabase Authentication URL Configuration, set the Site URL to the production Vercel address and add local/preview redirect URLs as needed.
+5. Add the same public variables to Vercel for Production, Preview, and Development.
+6. Configure the production Site URL and the required local/preview redirect URLs in Supabase Authentication.
+
+The publishable key is intentionally available to the browser. Access is enforced through PostgreSQL grants and Row Level Security. Never expose a Supabase secret or service-role key in a `VITE_` environment variable.
 
 ### Google sign-in
 
-The sign-in screen includes Google OAuth. To activate it, create a Web OAuth client in Google Cloud, add the callback URL shown in Supabase Authentication → Providers → Google to Google's authorized redirect URIs, then add the Google Client ID and secret to that Supabase provider. Keep the Google secret in Supabase; it must never be added to a `VITE_` variable.
+Create a Web OAuth client in Google Cloud, add the callback URL provided by Supabase to Google's authorized redirect URIs, and configure the client ID and secret in Supabase Authentication → Providers → Google. Keep the Google client secret in Supabase.
 
-The publishable key is intentionally used by the browser. Authorization is enforced with PostgreSQL grants and Row Level Security. Never expose a Supabase secret or service-role key through a `VITE_` variable.
+## Optional integrations
 
 ### Spoonacular recipe discovery
 
-The optional Discover tab calls Spoonacular through a protected Vercel Function. Add `SPOONACULAR_API_KEY` as a private Vercel environment variable for Production and Preview, then redeploy. Do not prefix this key with `VITE_`; browser-exposed variables would reveal it. The function verifies the user's Supabase access token, applies the user's diet, intolerance, and excluded-ingredient filters, searches only when requested, and caches Spoonacular responses for up to 55 minutes. Local Vite mode shows the Discover interface but requires `vercel dev` to run the `/api` function.
+Set `SPOONACULAR_API_KEY` as a private Vercel environment variable and redeploy. Do not prefix it with `VITE_`.
 
-### Backend behavior
+The `/api/spoonacular` function verifies the Supabase access token, applies the user's diet and intolerance settings, and caches responses to reduce quota usage. Use `vercel dev` when testing this function locally.
 
-- New accounts automatically receive a private household.
-- The first sign-in imports the user's existing local demo kitchen into the cloud.
-- Inventory, grocery, and household recipe changes are saved after a short debounce.
-- Signed-in kitchens keep an account-scoped browser cache and a pending-change snapshot so temporary connection loss does not discard edits.
-- Open tabs coordinate cloud writes, receive fresh kitchen snapshots, and stop on simultaneous-edit conflicts instead of silently overwriting newer data.
-- Failed cloud saves retry automatically, remain available for manual retry, and resume when the browser reconnects.
-- Ingredient freshness is stored as a calendar use-by date, with legacy `expires_in` values migrated automatically.
-- Each query is restricted to authenticated household members by Row Level Security.
-- Signed-out users can explicitly continue with a browser-only demo.
-- Signed-in testers can send private, household-scoped feedback. Feedback is insert-only from the app and can be reviewed by project owners in the Supabase table editor.
-- Diet, intolerance, and excluded-ingredient preferences are stored on each user's private profile rather than shared across the household.
+### Product lookup
 
-## Included in this MVP
+The `/api/product` function provides authenticated Open Food Facts lookup, normalized package metadata, friendly unknown-product handling, and short-lived caching.
 
-- Kitchen status overview with category counts and freshness score
-- Expiration-aware “use soon” list
-- Inventory search, filters, quantity controls, add, and remove
-- Smart Entry 2.0 for natural-language notes, multiline receipt text, and on-device receipt-photo OCR, including metric units, storage and freshness cues, and confidence-based review prompts
-- Food Intelligence 2.0 with a private offline catalog, receipt-abbreviation normalization, canonical food names, and category, icon, unit, storage, and shelf-life suggestions across smart and manual entry
-- Expiration Intelligence with purchased/opened freshness states, storage-aware date estimates, printed-date normalization, and implausible-date warnings
-- Stronger duplicate detection across common name/unit variants, quantity merging, and one-click undo
-- Private in-app beta feedback with lightweight screen context
-- Account and sync settings, profile-name updates, password recovery, and an application recovery screen
-- Recipe matching against current ingredient quantities
-- Household-scoped My Recipes with create, edit, delete, ingredients, serving data, and cooking instructions
-- Optional Spoonacular Discover search protected by Supabase authentication, short-lived caching, attribution, and graceful quota handling
-- Save Spoonacular discoveries into the shared recipe library with source attribution, images, kitchen matching, grocery-list actions, and removal controls
-- Per-user food preferences that filter Spoonacular discovery and flag obvious conflicts in saved recipes
-- Prioritization of recipes that rescue expiring food
-- Recipe filters for ready-now, quick, and high-protein meals
-- Adjustable servings with live ingredient recalculation
-- Meal Planner 2.0 with breakfast, lunch, dinner, and snack slots; week navigation; day copying; next-week repeat; serving controls; use-soon cues; and cloud sync
-- Shared meal-plan templates that save a full week, preserve meal slots and servings, and can be renamed, reused, or deleted
-- Free in-app meal reminders with per-device meal times, configurable lead time, and a mobile-friendly today view on Overview
-- Consolidated meal-plan grocery calculations across every meal slot that subtract kitchen inventory before adding missing items
-- Grocery List 2.0 with multiline quick entry, automatic aisle grouping and icons, collected/to-buy filters, shopping progress, item editing, and one-step purchased-item transfer to the kitchen
-- Household grocery staples with reusable groups, saved quantities, one-tap list building, item/group editing and ordering, duplicate-safe conversion, and cloud synchronization
-- Shared kitchens with expiring invite codes, member visibility, kitchen switching, and owner-managed names
-- Shared-kitchen invite revocation, role and member management, and a private recent-activity timeline
-- Household member names synchronized from Google or email profiles
-- Cooking flow that deducts ingredients from inventory
-- Household cooking history with recipe snapshots, servings, cook time, cook attribution, recent activity totals, and one-tap “Cook again”
-- Automatic conversion between compatible volume, weight, and count units for recipe matching, grocery planning, and cooking deductions
-- Barcode-ready product identity with validated GTIN/UPC values, brand and image metadata, and universal package-size normalization
-- Authenticated Open Food Facts product lookup with friendly unknown-product handling and short-lived server caching
-- Missing-ingredient flow that builds a grocery list
-- Purchased-items flow back into the kitchen
-- Responsive desktop and mobile layouts
+## Data and privacy
 
-## Next production steps
+- Household data is accessible only to authenticated members through Supabase RLS policies.
+- Personal food preferences remain user-scoped rather than household-shared.
+- Receipt photos are processed locally with Tesseract.js and are never uploaded or persisted by Mise.
+- Confirmed household food mappings can remember icons, food types, and storage choices.
+- Unknown-food trend counts are anonymous and do not store household or user identifiers.
+- No Supabase service-role credential is shipped to the browser.
 
-The current version is ready for private beta testing. Finish the active barcode-scanner validation before returning to smarter recommendations, followed by Meal Planner 2.1. Analytics and hosted error monitoring remain optional so the app can stay within free-tier services.
+## Current status
 
-Implementation priorities, deferred ideas, and UX improvements are tracked in [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md). Update that roadmap whenever a new feature changes the planned order so paused work is not lost.
+Mise is in **private beta**. The core My Kitchen, recipe, meal-planning, grocery, household collaboration, and barcode workflows are implemented.
 
-Receipt photos are processed in the browser with Tesseract.js. Mise does not upload or persist the image; only the user-reviewed ingredient data is saved.
+The current validation priorities are:
+
+1. Complete a physical two-device offline/reconnection test.
+2. Validate barcode scanning on a real iPhone across UPC, EAN, GTIN, damaged, and unknown codes.
+3. Finish the My Kitchen and Grocery List accessibility and mobile quality pass.
+4. Improve the What Can I Make? experience, followed by Meal Planner 2.1.
+
+Receipt-specific refinement is intentionally parked while the higher-frequency kitchen, grocery, and barcode workflows are validated. See [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) for the complete implementation order and decision history.
