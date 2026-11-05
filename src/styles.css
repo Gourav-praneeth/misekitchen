@@ -826,6 +826,101 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .toast-life { animation: none; }
 }
 
+/* Settings workspace: priority-first navigation and two-column rows */
+.settings-page { max-width: 1180px; }
+.settings-page > .page-title { margin-bottom: 30px; }
+.settings-page > .page-title h1 { font-size: clamp(30px, 3.2vw, 40px); }
+.settings-workspace { grid-template-columns: 218px minmax(0, 1fr); gap: 42px; }
+.settings-area-nav { top: 96px; gap: 14px; }
+.settings-area-select-wrap { display: none !important; }
+.settings-nav-list { display: grid; gap: 4px; }
+.settings-area-nav .settings-nav-list button { min-height: 62px; padding: 12px; border: 0; border-radius: 10px; }
+.settings-area-nav .settings-nav-list button:hover { background: #eceee8; }
+.settings-area-nav .settings-nav-list button.active { border: 0; background: #e3e8df; color: var(--ink); }
+.settings-area-nav .settings-nav-list button.active strong { color: var(--green); }
+.settings-area-nav .settings-nav-list strong { font-size: 12px; }
+.settings-area-nav .settings-nav-list small { margin-top: 4px; color: #68756c; font-size: 11px; line-height: 1.35; }
+.settings-area-heading { margin-bottom: 0; padding: 0 0 22px; border-bottom: 0; }
+.settings-area-heading h2 { font: 600 27px/1.1 'Fraunces', serif; }
+.settings-area-heading p { max-width: 620px; margin-top: 7px; color: #637168; font-size: 13px; }
+.settings-grid { display: flex; flex-direction: column; gap: 0; }
+.settings-card.panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.56fr) minmax(0, 1.44fr);
+  align-items: start;
+  gap: 28px;
+  min-height: 0;
+  padding: 26px 0;
+  border: 0;
+  border-top: 1px solid #dde1d9;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-card[hidden] { display: none; }
+.sync-settings-card { order: 1; }
+.storage-area-card { order: 2; }
+.profile-settings-card { order: 3; }
+.reminder-settings-card { order: 4; }
+.settings-card-head { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; margin: 4px 0 0; }
+.settings-card-head > span,
+.settings-card-head > span.warning { display: block; width: 20px; height: 20px; color: #69766d; }
+.settings-card-head > span.healthy { color: var(--green); }
+.settings-card-head svg { width: 17px; height: 17px; }
+.settings-card h2 { margin: 0 0 5px; font: 600 17px/1.2 'DM Sans', sans-serif; }
+.settings-card-head p, .settings-copy { color: #68756c; font-size: 12px; line-height: 1.5; }
+.settings-card-body { min-width: 0; padding: 20px; border-radius: 16px; background: #f7f8f4; }
+.settings-card-body.settings-compact-body { display: flex; align-items: center; min-height: 82px; }
+.settings-card-body > :first-child { margin-top: 0; }
+.settings-card-body > :last-child { margin-bottom: 0; }
+.settings-card label { color: #526158; font-size: 11px; letter-spacing: 0; text-transform: none; }
+.settings-card input, .settings-card select { min-height: 44px; border-color: #d8ddd5; border-radius: 10px; background: #fff; font-size: 14px; }
+.settings-card .secondary-button, .settings-card .danger-button { min-height: 42px; }
+.settings-stats { margin: 0; overflow: hidden; border: 1px solid #e0e3dc; border-radius: 12px; background: #fff; }
+.settings-stats span { padding: 14px; border-radius: 0; background: transparent; color: #6c776f; font-size: 11px; }
+.settings-stats span + span { border-left: 1px solid #e8eae4; }
+.settings-stats strong { margin-bottom: 4px; font-size: 16px; font-weight: 700; }
+.reminder-settings-card { align-content: start; }
+.reminder-toggle { background: #fff; }
+.privacy-note { font-size: 11px; }
+
+@media (max-width: 820px) {
+  .settings-workspace { grid-template-columns: 190px minmax(0, 1fr); gap: 24px; }
+  .settings-card.panel { grid-template-columns: 160px minmax(0, 1fr); gap: 20px; }
+}
+
+@media (max-width: 700px) {
+  .settings-page > .page-title { margin-bottom: 18px; }
+  .settings-page > .page-title h1 { font-size: 30px; }
+  .settings-workspace { display: block; }
+  .settings-area-select-wrap { display: grid !important; gap: 7px; }
+  .settings-area-select-wrap > span { font-size: 11px !important; letter-spacing: 0 !important; text-transform: none !important; }
+  .settings-nav-list { display: none; }
+  .settings-area-nav { margin-bottom: 24px; }
+  .settings-area-heading { padding-bottom: 18px; }
+  .settings-area-heading h2 { font-size: 23px; }
+  .settings-area-heading p { font-size: 12px; }
+  .settings-card.panel { display: grid; grid-template-columns: 1fr; gap: 14px; padding: 22px 0; }
+  .settings-card[hidden] { display: none; }
+  .settings-card-head { margin: 0; }
+  .settings-card-body { padding: 16px; border-radius: 14px; }
+  .settings-stats { grid-template-columns: 1fr; }
+  .settings-stats span + span { border-top: 1px solid #e8eae4; border-left: 0; }
+  .reminder-time-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Grocery actions stay together on one mobile row. */
+@media (max-width: 700px) {
+  .grocery-page .page-title { display: flex; align-items: stretch; gap: 15px; }
+  .grocery-page .title-actions { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) 46px; gap: 7px; }
+  .grocery-page .grocery-title-add,
+  .grocery-page .grocery-shopping-toggle,
+  .grocery-page .grocery-utility-wrap,
+  .grocery-page .grocery-more-button { width: 100%; min-width: 0; }
+  .grocery-page .grocery-title-add { grid-column: auto; grid-row: auto; padding-inline: 10px; }
+  .grocery-page .grocery-title-add,
+  .grocery-page .grocery-shopping-toggle { min-height: 46px; font-size: 11px; white-space: nowrap; }
+}
+
 /* Food types, physical storage, and freshness */
 .location-filter-row { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 1; }
 .location-filter-row .filter-tabs { min-width: 0; flex: 1; }
