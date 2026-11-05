@@ -51,6 +51,15 @@ describe('duplicate-safe inventory intelligence', () => {
     expect(groceryCategory({ name: 'baby spinach' })).toBe('Produce')
     expect(groceryCategory({ name: 'Greek yogurt' })).toBe('Dairy')
     expect(groceryCategory({ name: 'unknown specialty item' })).toBe('Other')
+    expect(groceryCategory({ name: 'Greek yogurt', category: 'Pantry' })).toBe('Pantry')
+  })
+
+  it('keeps a user-selected aisle when a grocery item merges', () => {
+    const result = mergeGroceryItems(
+      [{ name: 'Milk', amount: 1, unit: 'carton', checked: false, category: 'Dairy' }],
+      [{ name: 'Milk', amount: 2, unit: 'carton', checked: false, category: 'Pantry' }],
+    )
+    expect(result[0].category).toBe('Pantry')
   })
 
   it('deduplicates grocery entries using catalog identities', () => {

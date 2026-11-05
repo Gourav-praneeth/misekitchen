@@ -175,6 +175,7 @@ export async function loadCloudKitchen(householdId: string) {
     })) as InventoryItem[],
     grocery: (groceryResult.data || []).map((row) => ({
       id: row.id, name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
+      category: row.category || undefined,
       createdAt: row.created_at || null, createdBy: row.created_by || null,
     })) as GroceryItem[],
     stapleGroups: (stapleGroupResult.data || []).map((row) => ({
@@ -397,16 +398,24 @@ export async function saveGrocerySnapshot(householdId: string, items: GroceryIte
   const rows = items.map((item) => ({
     household_id: householdId,
     id: item.id || `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
+    name: item.name, amount: item.amount, unit: item.unit, checked: item.checked, category: item.category || undefined,
   }))
   const previousRows = previousItems?.map((item) => ({
     household_id: householdId,
     id: item.id || `${item.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${item.unit.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    name: item.name, amount: item.amount, unit: item.unit, checked: item.checked,
+    name: item.name, amount: item.amount, unit: item.unit, checked: item.checked, category: item.category || undefined,
   }))
   const upserts = changedSnapshotRows(rows, previousRows, force)
   if (upserts.length) {
-    const { error } = await supabase.from('grocery_items').upsert(upserts, { onConflict: 'household_id,id' })
+    let { error } = await supabase.from('grocery_items').upsert(upserts, { onConflict: 'household_id,id' })
+    if (error && ['42703', 'PGRST204'].includes(error.code || '')) {
+      const fallbackRows = upserts.map((row) => ({
+        household_id: row.household_id, id: row.id, name: row.name,
+        amount: row.amount, unit: row.unit, checked: row.checked,
+      }))
+      const fallback = await supabase.from('grocery_items').upsert(fallbackRows, { onConflict: 'household_id,id' })
+      error = fallback.error
+    }
     if (error) throw error
   }
   await deleteSnapshotRows('grocery_items', householdId, rows.map((row) => row.id), previousRows?.map((row) => row.id))
@@ -418,6 +427,7 @@ export async function loadGroceryItems(householdId: string): Promise<GroceryItem
   if (error) throw error
   return (data || []).map((row) => ({
     id: row.id, name: row.name, amount: Number(row.amount), unit: row.unit, checked: row.checked,
+    category: row.category || undefined,
     createdAt: row.created_at || null, createdBy: row.created_by || null,
   }))
 }

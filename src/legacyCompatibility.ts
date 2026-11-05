@@ -58,8 +58,9 @@ export function normalizeLegacyGrocery(items: GroceryItem[]) {
     let suffix = 2
     while (ids.has(id)) { id = `${baseId}-${suffix}`; suffix += 1 }
     ids.add(id)
-    const next: GroceryItem = { ...item, id, amount, unit, checked: Boolean(item.checked) }
-    if (id !== item.id || amount !== item.amount || unit !== item.unit || next.checked !== item.checked) changed = true
+    const category = categories.has(item.category as Category) ? item.category : getFoodIntelligence(item.name)?.profile.category || 'Other'
+    const next: GroceryItem = { ...item, id, amount, unit, checked: Boolean(item.checked), category }
+    if (id !== item.id || amount !== item.amount || unit !== item.unit || next.checked !== item.checked || category !== item.category) changed = true
     return next
   })
   return { items: normalized, changed }

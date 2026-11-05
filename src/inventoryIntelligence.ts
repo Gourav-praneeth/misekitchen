@@ -64,8 +64,8 @@ export function groceryItemsFromText(value: string): GroceryItem[] {
   }))
 }
 
-export function groceryCategory(item: Pick<GroceryItem, 'name'>): Category {
-  return getFoodIntelligence(item.name)?.profile.category || 'Other'
+export function groceryCategory(item: Pick<GroceryItem, 'name' | 'category'>): Category {
+  return item.category || getFoodIntelligence(item.name)?.profile.category || 'Other'
 }
 
 export function groceryEmoji(item: Pick<GroceryItem, 'name' | 'emoji'>) {
@@ -83,6 +83,7 @@ export function mergeGroceryItems(current: GroceryItem[], incoming: GroceryItem[
     if (existing) {
       existing.amount = Math.max(existing.amount, convertAmount(prepared.amount, prepared.unit, existing.unit) || 0)
       existing.checked = existing.checked && prepared.checked
+      if (prepared.category) existing.category = prepared.category
       if (!existing.checked) existing.purchase = undefined
     } else {
       items.push(prepared)

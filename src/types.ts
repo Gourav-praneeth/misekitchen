@@ -86,6 +86,7 @@ export type GroceryPurchase = ProductMetadata & {
 
 export type GroceryItem = RecipeIngredient & {
   checked: boolean
+  category?: Category
   purchase?: GroceryPurchase
   emoji?: string
   id?: string

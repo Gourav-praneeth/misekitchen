@@ -169,8 +169,10 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .kitchen-toolbar .filter-tabs button.active em { background: #dfe9dc; color: var(--green); }
 .kitchen-result-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 30px; margin: 0 2px 8px; color: #748077; font-size: 11px; }
 .kitchen-result-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-.attention-summary { display: inline-flex; align-items: center; gap: 5px; color: #9b5b39; font-weight: 700; }
+.attention-summary { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 6px 9px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #9b5b39; font: inherit; font-weight: 800; cursor: pointer; }
+.attention-summary:hover, .attention-summary:focus-visible, .attention-summary.active { border-color: #e0bda9; background: #f7e8e0; outline: none; }
 .attention-summary svg { width: 13px; height: 13px; }
+.attention-summary svg:last-child { margin-left: 2px; }
 .presence-table { overflow: visible; border-radius: 12px; box-shadow: none; }
 .presence-table .table-head, .presence-table .inventory-row { grid-template-columns: minmax(220px, 2fr) minmax(100px, .8fr) minmax(85px, .65fr) minmax(116px, .9fr) minmax(140px, 1fr); gap: 14px; padding-right: 16px; padding-left: 16px; }
 .presence-table .table-head { padding-top: 11px; padding-bottom: 11px; color: #737e76; font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; }
@@ -307,7 +309,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .grocery-review-summary span + span { border-left: 1px solid #dfe3da; }
 .grocery-review-summary strong { margin-right: 3px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .grocery-review-list { display: grid; gap: 9px; }
-.grocery-review-list article { display: grid; grid-template-columns: 50px minmax(170px, 1fr) 90px 120px 32px; align-items: end; gap: 8px; padding: 11px; border: 1px solid #dde1d8; border-radius: 12px; background: #faf9f5; }
+.grocery-review-list article { display: grid; grid-template-columns: 50px minmax(150px, 1fr) 110px 82px 105px 32px; align-items: end; gap: 8px; padding: 11px; border: 1px solid #dde1d8; border-radius: 12px; background: #faf9f5; }
 .grocery-review-list article.has-error { border-color: #d9a893; }
 .grocery-review-list article > label { margin: 0; }
 .grocery-review-identity { display: grid; justify-items: center; gap: 3px; }
@@ -327,7 +329,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .grocery-review-footer .secondary-button, .grocery-review-footer .submit-button { width: auto; min-width: 112px; min-height: 40px; margin: 0; }
 .grocery-review-footer .submit-button { min-width: 170px; }
 .cooking-completion { width: min(690px, 100%); }.cooking-restock-list { display: grid; gap: 8px; }.cooking-restock-list article { display: grid; grid-template-columns: 34px 38px minmax(150px, 1fr) 80px 110px; align-items: center; gap: 9px; padding: 10px; border: 1px solid #dfe2da; border-radius: 12px; background: #faf9f5; }.cooking-restock-list article.selected { border-color: #9db69f; background: #edf3e9; }.restock-check { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #b8c9ba; border-radius: 9px; background: white; color: var(--green); cursor: pointer; }.restock-check svg { width: 14px; }.cooking-restock-list article > span { font-size: 21px; }.cooking-restock-list p { margin: 0; }.cooking-restock-list strong, .cooking-restock-list small { display: block; }.cooking-restock-list strong { font-size: 11px; }.cooking-restock-list small { margin-top: 3px; color: #7e8981; font-size: 8px; }.cooking-restock-list input, .cooking-restock-list select { min-width: 0; padding: 8px; border: 1px solid #d6dbd3; border-radius: 8px; background: white; }.presence-fields { grid-template-columns: 1fr 1fr !important; }
-@media (max-width: 700px) { .nav-new-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; padding: 0; overflow: hidden; color: transparent; }.nav-item { position: relative; }.kitchen-page .page-title h1 { font-size: 30px; }.kitchen-page .page-title .title-actions { display: none; }.mobile-item-location { display: inline; }.presence-table .availability-pill, .presence-table .location-pill { display: none; }.grocery-review-summary { grid-template-columns: 1fr; }.grocery-review-summary span + span { border-top: 1px solid #dfe3da; border-left: 0; }.grocery-review-list article { grid-template-columns: 44px minmax(0, 1fr) 32px; align-items: end; }.grocery-review-list article > label:nth-of-type(1) { grid-column: 2; }.grocery-review-list article > label:nth-of-type(2) { grid-column: 1 / 3; }.grocery-review-list article > label:nth-of-type(3) { grid-column: 1 / 3; }.grocery-review-list article > button { grid-column: 3; grid-row: 1; }.grocery-review-list article > small { grid-column: 1 / -1; }.grocery-review-list input, .grocery-review-list select { font-size: 16px; }.grocery-review-footer { align-items: stretch; flex-direction: column; }.grocery-review-footer > div { display: grid; grid-template-columns: 1fr 1fr; }.grocery-review-footer .secondary-button, .grocery-review-footer .submit-button { width: 100%; min-width: 0; }.cooking-restock-list article { grid-template-columns: 32px 32px minmax(0, 1fr); }.cooking-restock-list article input, .cooking-restock-list article select { grid-column: 1 / -1; }.new-grocery-banner { align-items: flex-start; } }
+@media (max-width: 700px) { .nav-new-badge { position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; padding: 0; overflow: hidden; color: transparent; }.nav-item { position: relative; }.kitchen-page .page-title h1 { font-size: 30px; }.kitchen-page .page-title .title-actions { display: none; }.mobile-item-location { display: inline; }.presence-table .availability-pill, .presence-table .location-pill { display: none; }.grocery-review-summary { grid-template-columns: 1fr; }.grocery-review-summary span + span { border-top: 1px solid #dfe3da; border-left: 0; }.grocery-review-list article { grid-template-columns: 44px minmax(0, 1fr) 32px; align-items: end; }.grocery-review-list article > label:nth-of-type(1) { grid-column: 2; }.grocery-review-list article > label:nth-of-type(2), .grocery-review-list article > label:nth-of-type(3), .grocery-review-list article > label:nth-of-type(4) { grid-column: 1 / 3; }.grocery-review-list article > button { grid-column: 3; grid-row: 1; }.grocery-review-list article > small { grid-column: 1 / -1; }.grocery-review-list input, .grocery-review-list select { font-size: 16px; }.grocery-review-footer { align-items: stretch; flex-direction: column; }.grocery-review-footer > div { display: grid; grid-template-columns: 1fr 1fr; }.grocery-review-footer .secondary-button, .grocery-review-footer .submit-button { width: 100%; min-width: 0; }.cooking-restock-list article { grid-template-columns: 32px 32px minmax(0, 1fr); }.cooking-restock-list article input, .cooking-restock-list article select { grid-column: 1 / -1; }.new-grocery-banner { align-items: flex-start; } }
 .meal-template-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 9px; padding: 13px; border-radius: 12px; background: #edf2e9; }
 .meal-template-create label { margin: 0; }
 .meal-template-create button, .template-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 39px; padding: 9px 12px; border: 1px solid #b8cab9; border-radius: 9px; background: var(--green); color: white; font-size: 9px; font-weight: 800; cursor: pointer; }
@@ -354,6 +356,7 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .grocery-page .title-actions { flex-wrap: wrap; justify-content: flex-end; }
 .grocery-primary-actions { position: relative; }
 .grocery-primary-actions > button { min-height: 42px; }
+.grocery-secondary-actions { display: flex; align-items: center; gap: 8px; }
 .grocery-utility-wrap { position: relative; }
 .grocery-more-button { width: 44px; min-width: 44px; min-height: 42px; padding-inline: 0; }
 .grocery-more-button svg { width: 17px; }
@@ -417,13 +420,17 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
 .purchase-review { width: min(700px, 100%); max-height: 92vh; overflow: auto; }.purchase-scan-all { display: grid; grid-template-columns: 25px auto 1fr 16px; align-items: center; gap: 7px; width: 100%; margin: -7px 0 14px; padding: 11px 12px; border: 1px solid #a9c0ad; border-radius: 11px; background: #e8f0e5; color: var(--green); font-size: 10px; font-weight: 800; text-align: left; cursor: pointer; }.purchase-scan-all > span { color: #758278; font-size: 8px; font-weight: 500; }.purchase-scan-all svg { width: 15px; }.purchase-review-list { display: grid; gap: 9px; margin-bottom: 16px; }.purchase-review article { padding: 12px; border: 1px solid #dde1d8; border-radius: 12px; background: #faf9f5; }.purchase-item-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }.purchase-item-heading > span { display: grid; place-items: center; width: 38px; height: 38px; overflow: hidden; border-radius: 10px; background: #eeece3; font-size: 20px; }.purchase-item-heading > span img { width: 100%; height: 100%; object-fit: contain; background: white; }.purchase-item-heading p { flex: 1; margin: 0; }.purchase-item-heading strong, .purchase-item-heading small { display: block; }.purchase-item-heading strong { font-size: 11px; }.purchase-item-heading small { margin-top: 2px; color: #7e8981; font-size: 8px; }.purchase-item-scan { display: flex; align-items: center; gap: 4px; padding: 7px 9px; border: 1px solid #b7c8b8; border-radius: 8px; background: #edf3ea; color: var(--green); font-size: 8px; font-weight: 800; cursor: pointer; }.purchase-item-scan svg { width: 12px; }.purchase-fields { display: grid; grid-template-columns: 75px 90px minmax(110px, 1fr) 100px 125px; gap: 8px; }.purchase-fields label { display: grid; gap: 4px; margin: 0; color: #6f7d74; font-size: 7px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }.purchase-fields input, .purchase-fields select { min-width: 0; padding: 8px 9px; font-size: 10px; }.purchase-barcode { display: flex; align-items: center; gap: 5px; margin-top: 8px; color: #4e7558; font-size: 8px; }.purchase-barcode svg { width: 12px; }.purchase-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; padding-top: 8px; border-top: 1px solid #e3e5de; }.purchase-total span { color: #7a867e; font-size: 8px; }.purchase-total strong { color: var(--green); font-size: 10px; }
 .purchase-barcode-backdrop { z-index: 40; }.purchase-barcode-capture { width: min(560px, 100%); }.purchase-product-review { display: grid; gap: 10px; }.purchase-product-review label { margin: 0; }.purchase-match-summary { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border-radius: 10px; background: #e8f0e5; color: #56705e; }.purchase-match-summary svg { flex: 0 0 auto; width: 15px; }.purchase-match-summary strong { display: block; margin-bottom: 2px; color: var(--green); font-size: 10px; }.purchase-match-summary span { font-size: 8px; line-height: 1.45; }.purchase-scan-actions { display: grid; gap: 7px; margin-top: 3px; }.purchase-scan-actions button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; margin: 0; }.purchase-scan-actions svg { width: 14px; }
 @media (max-width: 700px) {
-  .grocery-page .page-title { gap: 16px; }
-  .grocery-page .title-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 46px; gap: 7px; }
-  .grocery-page .title-actions > button, .grocery-page .title-actions .grocery-utility-wrap, .grocery-page .title-actions .grocery-more-button { width: 100%; }
+  .grocery-page .page-title { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px 10px; }
+  .grocery-page .page-title > div:first-child { grid-column: 1; }
+  .grocery-page .page-title > div:first-child p { grid-column: 1 / -1; }
+  .grocery-page .title-actions { display: contents; }
+  .grocery-page .grocery-title-add { grid-column: 2; grid-row: 1; align-self: start; min-height: 44px; padding-inline: 14px; white-space: nowrap; }
+  .grocery-secondary-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: 7px; }
+  .grocery-page .grocery-secondary-actions > button, .grocery-page .title-actions .grocery-utility-wrap, .grocery-page .title-actions .grocery-more-button { width: 100%; }
   .grocery-page .title-actions .grocery-more-button { min-width: 0; height: 44px; padding: 0; }
   .grocery-utility-menu { position: fixed; top: auto; right: 16px; bottom: 92px; left: 16px; min-width: 0; padding: 7px; }
   .grocery-utility-menu button { min-height: 46px; font-size: 12px; }
-  .store-mode .grocery-primary-actions { grid-template-columns: 1fr; }
+  .store-mode .grocery-secondary-actions { grid-template-columns: 1fr; }
   .grocery-add-panel > header { padding: 15px 15px 0; }
   .grocery-add { grid-template-columns: 1fr; }
   .grocery-add > button { width: 100%; }
@@ -718,6 +725,11 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   display: grid;
   gap: 4px;
 }
+.settings-area-nav label { display: grid; gap: 8px; }
+.settings-area-nav label > span { color: #657269; font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.settings-area-nav select { width: 100%; min-height: 48px; padding: 0 38px 0 13px; border: 1px solid #cfd8ce; border-radius: 11px; background: #fffdf8; color: var(--ink); font-size: 11px; font-weight: 800; cursor: pointer; }
+.settings-area-nav select:focus-visible { outline: 3px solid rgba(49,92,69,.2); outline-offset: 2px; }
+.settings-area-nav > p { margin: 10px 2px 0; color: #7d8880; font-size: 9px; line-height: 1.5; }
 .settings-area-nav button {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -794,21 +806,12 @@ h1, h2 { font-family: 'Fraunces', serif; font-weight: 500; }
   .settings-workspace { display: block; }
   .settings-area-nav {
     position: static;
-    display: flex;
-    gap: 7px;
-    margin: 0 -18px 23px;
-    padding: 0 18px 3px;
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: block;
+    margin: 0 0 20px;
+    padding: 0;
   }
-  .settings-area-nav::-webkit-scrollbar { display: none; }
-  .settings-area-nav button {
-    flex: 0 0 142px;
-    min-height: 58px;
-    padding: 10px 11px;
-    background: #efefe8;
-  }
-  .settings-area-nav button.active { background: #e4ece1; }
+  .settings-area-nav select { min-height: 50px; font-size: 16px; }
+  .settings-area-nav > p { margin-top: 8px; font-size: 10px; }
   .settings-area-heading { margin-bottom: 15px; padding-bottom: 15px; }
   .settings-area-heading h2 { font-size: 24px; }
   .settings-card.panel { padding: 18px; }
